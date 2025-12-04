@@ -987,12 +987,77 @@
         let appHistory = [];
         const MAX_HISTORY = 15;
         const MAX_DASHBOARD_ITEMS = 15; 
+        // --- متغيرات البحث المتطور (Web Worker) ---
+        let searchWorker = null;
+        // تعريف عناصر البحث
+        const searchTriggers = {
+            main: document.getElementById('search-trigger-main'),
+            content: document.getElementById('search-trigger-content'),
+        };
+        const searchInput = document.getElementById('global-search-input');
+        const searchClearBtn = document.getElementById('global-search-clear');
+        const searchResultsOverlay = document.getElementById('search-results-overlay');
+        const searchResultsList = document.getElementById('search-results-list');
+        const searchResultsLoading = document.getElementById('search-results-loading');
+        const searchLoadingMessage = document.getElementById('search-loading-message');
+        const searchResultsCloseBtn = document.getElementById('search-results-close-btn');
 
-        // --- [تعديل] متغيرات البحث ---
-        let appFullDataCache = { movies: null, series: null, live: null };
-        let isSearchCacheReady = { movies: false, series: false, live: false };
-        let isSearchCacheLoading = { movies: false, series: false, live: false };
-        let searchDebounceTimer = null;
+        // كود المعالج الخلفي (Worker) مدمج
+        const workerScript = `
+            self.onmessage = async function(e) {
+                const { type, payload } = e.data;
+
+                if (type === 'INIT_DATA') {
+                    const { credentials } = payload;
+                    const apiBase = \`\${credentials.host.replace(/\\/player_api\\.php$/, '')}/player_api.php?username=\${credentials.user}&password=\${credentials.pass}\`;
+                    
+                    try {
+                        // جلب البيانات بشكل متوازي
+                        const [movies, series, live] = await Promise.all([
+                            fetch(\`\${apiBase}&action=get_vod_streams\`).then(r => r.json()).catch(() => []),
+                            fetch(\`\${apiBase}&action=get_series\`).then(r => r.json()).catch(() => []),
+                            fetch(\`\${apiBase}&action=get_live_streams\`).then(r => r.json()).catch(() => [])
+                        ]);
+
+                        self.allData = {
+                            movies: movies.map(i => ({ ...i, type: 'vod_stream' })),
+                            series: series.map(i => ({ ...i, type: 'series_list' })),
+                            live: live.map(i => ({ ...i, type: 'live_stream' }))
+                        };
+
+                        self.postMessage({ type: 'DATA_READY' });
+                    } catch (err) {
+                        self.postMessage({ type: 'ERROR', message: err.message });
+                    }
+                }
+
+                if (type === 'SEARCH') {
+                    const query = payload.query.toLowerCase();
+                    if (!self.allData) {
+                        self.postMessage({ type: 'SEARCH_RESULTS', results: [] });
+                        return;
+                    }
+
+                    const limit = 50; 
+                    let results = [];
+                    
+                    const filterList = (list) => {
+                        for (let item of list) {
+                            if (results.length >= limit) break;
+                            if (item.name && item.name.toLowerCase().includes(query)) {
+                                results.push(item);
+                            }
+                        }
+                    };
+
+                    filterList(self.allData.series || []);
+                    if (results.length < limit) filterList(self.allData.movies || []);
+                    if (results.length < limit) filterList(self.allData.live || []);
+
+                    self.postMessage({ type: 'SEARCH_RESULTS', results: results });
+                }
+            };
+        `;
 
         // --- جلب عناصر الواجهة ---
         const views = {
@@ -1012,18 +1077,8 @@
         const infoModal = document.getElementById('info-modal');
         const loadingMessage = document.getElementById('loading-message');
 
-        // --- [تعديل] عناصر البحث ---
-        const searchTriggers = {
-            main: document.getElementById('search-trigger-main'),
-            content: document.getElementById('search-trigger-content'),
-        };
-        const searchInput = document.getElementById('global-search-input');
-        const searchClearBtn = document.getElementById('global-search-clear');
-        const searchResultsOverlay = document.getElementById('search-results-overlay');
-        const searchResultsList = document.getElementById('search-results-list');
-        const searchResultsLoading = document.getElementById('search-results-loading');
-        const searchLoadingMessage = document.getElementById('search-loading-message');
-        const searchResultsCloseBtn = document.getElementById('search-results-close-btn');
+        
+
 
         // --- متغيرات المشغل المخصص ---
         const playerView = document.getElementById('player-view');
@@ -1667,13 +1722,48 @@
             }
         }
         
-        // --- [تعديل] دوال البحث ---
+           // --- [تعديل] دوال البحث (Web Worker) ---
+
+        function initSearchWorker() {
+            if (searchWorker) return; 
+
+            const blob = new Blob([workerScript], { type: 'text/javascript' });
+            searchWorker = new Worker(URL.createObjectURL(blob));
+
+            searchWorker.onmessage = function(e) {
+                const { type, results, message } = e.data;
+
+                if (type === 'DATA_READY') {
+                    if(searchLoadingMessage) searchLoadingMessage.textContent = 'تم تجهيز البيانات. ابحث الآن.';
+                    if(searchResultsLoading && searchResultsList.innerHTML.includes('جاري تحضير')) searchResultsLoading.style.display = 'none';
+                }
+                
+                if (type === 'SEARCH_RESULTS') {
+                    populateSearchResults(results);
+                }
+
+                if (type === 'ERROR') {
+                    console.error("Worker Error:", message);
+                    if(searchLoadingMessage) searchLoadingMessage.textContent = 'حدث خطأ أثناء تحميل البيانات.';
+                }
+            };
+        }
+
+        function startDataLoading() {
+            if (!searchWorker) initSearchWorker();
+            searchWorker.postMessage({
+                type: 'INIT_DATA',
+                payload: { credentials: currentCredentials }
+            });
+        }
 
         function showSearchOverlay() {
             searchResultsOverlay.style.display = 'flex';
-            searchInput.focus(); // [تعديل] التركيز على حقل البحث الجديد
-            // [تعديل] التحقق من حالة التحميل عند الفتح
-            performSearch(searchInput.value);
+            searchInput.focus();
+            if (!searchWorker) {
+                initSearchWorker();
+                startDataLoading();
+            }
         }
 
         function hideSearchOverlay() {
@@ -1683,56 +1773,6 @@
             searchResultsLoading.style.display = 'none';
         }
 
-        async function prepareSearchCache() {
-            // التحقق إذا كان الجلب جارياً أو تم بالفعل
-            if ((isSearchCacheLoading.movies && isSearchCacheLoading.series) || (isSearchCacheReady.movies && isSearchCacheReady.series)) {
-                return;
-            }
-
-            console.log("Starting background search cache preparation...");
-
-            isSearchCacheLoading.movies = true;
-            isSearchCacheLoading.series = true;
-            isSearchCacheLoading.live = true;
-
-            const [moviesData, seriesData, liveData] = await Promise.allSettled([
-                apiFetch('get_vod_streams', '', false),
-                apiFetch('get_series', '', false),
-                apiFetch('get_live_streams', '', false)
-            ]);
-
-            if (moviesData.status === 'fulfilled' && moviesData.value) {
-                appFullDataCache.movies = moviesData.value;
-                isSearchCacheReady.movies = true;
-            } else {
-                console.error("Failed to fetch all movies for search:", moviesData.reason);
-            }
-            isSearchCacheLoading.movies = false;
-
-            if (seriesData.status === 'fulfilled' && seriesData.value) {
-                appFullDataCache.series = seriesData.value;
-                isSearchCacheReady.series = true;
-            } else {
-                console.error("Failed to fetch all series for search:", seriesData.reason);
-            }
-            isSearchCacheLoading.series = false;
-
-            if (liveData.status === 'fulfilled' && liveData.value) {
-                appFullDataCache.live = liveData.value;
-                isSearchCacheReady.live = true;
-            } else {
-                console.error("Failed to fetch all live for search:", liveData.reason);
-            }
-            isSearchCacheLoading.live = false;
-            
-            console.log("Background search cache preparation finished.");
-            
-            // [تعديل] إذا كانت نافذة البحث مفتوحة، قم بتحديثها
-            if (searchResultsOverlay.style.display === 'flex') {
-                performSearch(searchInput.value);
-            }
-        }
-        
         function getCategoryName(item, type) {
             let cat;
             switch(type) {
@@ -1746,7 +1786,7 @@
                     cat = appCache.allLiveCategories.find(c => c.category_id == item.category_id);
                     return cat ? cat.category_name : 'بث مباشر';
                 default:
-                    return 'قسم غير معروف';
+                    return 'عام';
             }
         }
 
@@ -1754,7 +1794,7 @@
             searchResultsList.innerHTML = '';
             searchResultsLoading.style.display = 'none';
 
-            if (results.length === 0) {
+            if (!results || results.length === 0) {
                 searchResultsList.innerHTML = '<div class="p-4 text-center text-gray-500 dark:text-gray-400">لا توجد نتائج مطابقة.</div>';
                 return;
             }
@@ -1764,7 +1804,7 @@
                 el.className = 'search-result-item';
                 
                 let title = item.name;
-                let type = item.type; // النوع الذي أضفناه أثناء الفلترة
+                let type = item.type;
                 let catName = getCategoryName(item, type);
                 let imageUrl = item.cover || item.stream_icon || '';
                 let placeholderIcon = 'fa-film';
@@ -1792,53 +1832,34 @@
         }
 
         function performSearch(query) {
-            query = query.toLowerCase().trim();
+            query = query.trim();
             
-            // [تعديل] التحقق من حالة التحميل
-            if (!isSearchCacheReady.movies || !isSearchCacheReady.series || !isSearchCacheReady.live) {
-                searchResultsLoading.style.display = 'block';
-                searchResultsList.innerHTML = '';
-                if (isSearchCacheLoading.movies || isSearchCacheLoading.series) {
-                    searchLoadingMessage.textContent = 'جاري تحضير فهرس البحث... (قد يستغرق دقائق)';
-                } else {
-                     searchLoadingMessage.textContent = 'ابدأ الكتابة للبحث...'; // حالة نادرة
-                }
-                return;
-            }
-            
-            searchResultsLoading.style.display = 'none';
-
             if (query.length < 2) { 
                 searchResultsList.innerHTML = '<div class="p-4 text-center text-gray-500 dark:text-gray-400">اكتب حرفين أو أكثر للبحث...</div>';
                 return;
             }
 
-            const movieResults = (appFullDataCache.movies || [])
-                .filter(item => item.name.toLowerCase().includes(query))
-                .map(item => ({...item, type: 'vod_stream'})); // إضافة النوع للتمييز
-
-            const seriesResults = (appFullDataCache.series || [])
-                .filter(item => item.name.toLowerCase().includes(query))
-                .map(item => ({...item, type: 'series_list'})); // إضافة النوع للتمييز
-
-            const liveResults = (appFullDataCache.live || [])
-                .filter(item => item.name.toLowerCase().includes(query))
-                .map(item => ({...item, type: 'live_stream'})); // إضافة النوع للتمييز
-
-            // إعطاء الأولوية للمسلسلات ثم الأفلام ثم البث
-            const allResults = [...seriesResults, ...movieResults, ...liveResults];
+            searchResultsLoading.style.display = 'block';
+            searchLoadingMessage.textContent = 'جاري البحث...';
+            searchResultsList.innerHTML = '';
             
-            populateSearchResults(allResults);
+            if (searchWorker) {
+                searchWorker.postMessage({
+                    type: 'SEARCH',
+                    payload: { query: query }
+                });
+            }
         }
 
+        let searchTimeout;
         function handleSearchInput(e) {
             const query = e.target.value;
-            
-            clearTimeout(searchDebounceTimer);
-            searchDebounceTimer = setTimeout(() => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
                 performSearch(query);
-            }, 300); // 300ms debounce
+            }, 300);
         }
+
 
 
         // --- دوال التنقل وتشغيل المحتوى ---
@@ -2218,7 +2239,9 @@ history.replaceState({ internal: true }, "", "");
                 fetchDashboardData(); 
                 
                 // [تعديل] بدء تحميل كاش البحث في الخلفية
-                prepareSearchCache();
+                                initSearchWorker();
+                startDataLoading();
+
 
             } else { 
                 if (remember) { setLocalStorage('iptv_credentials', null); }
@@ -2424,19 +2447,27 @@ document.getElementById('btn-open-external').addEventListener('click', () => {
             await handleLogin(host, user, pass, remember);
         });
 
-        document.getElementById('logout-button').addEventListener('click', () => {
-            currentCredentials = {}; apiBaseUrl = ''; navigationStack = []; currentUserInfo = null;
+                document.getElementById('logout-button').addEventListener('click', () => {
+            // تصفير المتغيرات
+            currentCredentials = {}; 
+            apiBaseUrl = ''; 
+            navigationStack = []; 
+            currentUserInfo = null;
             appCache = { movieCategories: [], seriesCategories: [], liveCategories: [], allMovieCategories: [], allSeriesCategories: [], allLiveCategories: [] }; 
-            appFavorites = []; appHistory = [];
-            // [إضافة] إعادة تعيين كاش البحث
-            appFullDataCache = { movies: null, series: null, live: null };
-            isSearchCacheReady = { movies: false, series: false, live: false };
-            isSearchCacheLoading = { movies: false, series: false, live: false };
+            appFavorites = []; 
+            appHistory = [];
+            
+            // [الجديد] إيقاف عملية البحث الخلفية وتنظيف الذاكرة
+            if (searchWorker) { 
+                searchWorker.terminate(); 
+                searchWorker = null; 
+            }
 
             setLocalStorage('iptv_credentials', null);
             stopStream(); 
             showView('login');
         });
+
 
         // --- الكود القديم (الإصلاح) ---
         document.getElementById('btn-live').addEventListener('click', async () => {
