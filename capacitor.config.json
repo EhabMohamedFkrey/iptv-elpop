@@ -1,0 +1,17 @@
+{
+  "appId": "com.elpop.iptv",
+  "appName": "IPTV Elpop",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true,
+    "allowNavigation": [
+      "*"
+    ]
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
