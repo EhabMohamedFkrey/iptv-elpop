@@ -7,12 +7,10 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@capacitor/android": "^6.0.0",
-    "@capacitor/core": "^6.0.0",
-    "@capacitor/cli": "^6.0.0",
-    "@capacitor-community/keep-awake": "^5.0.0"
+    "@capacitor/android": "latest",
+    "@capacitor/core": "latest",
+    "@capacitor/cli": "latest",
+    "@capacitor-community/keep-awake": "latest"
   },
-  "devDependencies": {
-    "trapeze": "^3.0.0"
-  }
+  "devDependencies": {}
 }
