@@ -36,39 +36,61 @@ jobs:
       - name: Install Cordova
         run: npm install -g cordova
         
-      # 1. تنظيف وتثبيت المكتبات
+      # 1. تنظيف شامل
       - name: Clean Install Dependencies
         run: |
           rm -rf node_modules
           rm -f package-lock.json
           npm install
 
-      # 2. إصلاح كود الإضافة (فقط تحديث الأمر، لا نغير الإصدار)
+      # 2. إصلاح كود الإضافة (syntax فقط)
       - name: Fix ExoPlayer Plugin Syntax
         run: |
-          echo "Fixing compile vs implementation..."
-          # نستبدل compile بـ implementation لأن Gradle 8 لا يدعم compile
+          # تصحيح compile إلى implementation
           find node_modules/cordova-plugin-exoplayer -name "*.gradle" -exec sed -i 's/compile /implementation /g' {} +
-          echo "Plugin Syntax Fixed!"
+          # حذف jcenter() من ملف الإضافة نفسه لتجنب التعارض (سنضيفه نحن بشكل صحيح)
+          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/jcenter()//g' {} +
 
-      # 3. إضافة منصة الأندرويد
+      # 3. إضافة المنصة
       - name: Add Android Platform
         run: cordova platform add android
 
       # ========================================================
-      # الخطوة السحرية: حقن JCenter في المكان الصحيح (settings.gradle)
+      # الحل النهائي: إنشاء ملف build-extras.gradle
+      # هذا الملف يجبر Gradle على استخدام المستودعات المطلوبة
       # ========================================================
-      - name: Inject JCenter into Settings.gradle
+      - name: Create Build Extras
         run: |
-          echo "Injecting JCenter into settings.gradle (Cordova 12 Requirement)..."
+          echo "Creating build-extras.gradle to force repositories..."
           
-          # الملف settings.gradle هو المتحكم الجديد في المستودعات
-          # نبحث عن mavenCentral() ونضيف بعدها jcenter()
+          # نكتب ملفاً جديداً في مجلد الأندرويد
+          cat <<EOF > platforms/android/build-extras.gradle
+          ext.postBuildExtras = {
+              buildscript {
+                  repositories {
+                      google()
+                      mavenCentral()
+                      maven { url "https://maven.google.com" }
+                      jcenter() // هذا هو المستودع المفقود للإصدار 2.6.1
+                  }
+              }
+              allprojects {
+                  repositories {
+                      google()
+                      mavenCentral()
+                      maven { url "https://maven.google.com" }
+                      jcenter()
+                  }
+              }
+          }
+          EOF
+          
+          echo "build-extras.gradle created successfully!"
+
+      # خطوة إضافية: تعديل settings.gradle كإجراء أخير للتأكيد
+      - name: Force JCenter in Settings
+        run: |
           sed -i 's/mavenCentral()/mavenCentral()\n        jcenter()/g' platforms/android/settings.gradle
-          sed -i 's/google()/google()\n        maven { url "https:\/\/maven.google.com" }/g' platforms/android/settings.gradle
-          
-          echo "Settings.gradle patched successfully!"
-          cat platforms/android/settings.gradle # طباعة الملف للتأكد في السجلات
 
       - name: Build APK
         run: cordova build android --debug
