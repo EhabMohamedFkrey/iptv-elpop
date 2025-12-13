@@ -42,16 +42,18 @@ jobs:
       - name: Add Android Platform
         run: cordova platform add android
 
-      # --- الحل النهائي: إجبار النظام على استخدام نسخة متوفرة ---
-      - name: Create Build Extras (Force Newer ExoPlayer)
+      # --- الخطوة المعدلة (الحل النووي) ---
+      - name: Force JCenter Globally
         run: |
-          # نكتب كود Groovy لإجبار النظام على ترقية المكتبة المفقودة
-          echo 'configurations.all { resolutionStrategy { force "com.google.android.exoplayer:exoplayer:2.9.6" } }' > platforms/android/build-extras.gradle
-          echo 'configurations.all { resolutionStrategy { force "com.google.android.exoplayer:exoplayer:2.9.6" } }' > platforms/android/app/build-extras.gradle
+          # 1. البحث في كل ملفات gradle وإضافة jcenter بالقوة في كل مكان
+          # هذا الأمر يضمن أن النظام سيبحث في jcenter مهما كان مكان الإعدادات
+          find platforms/android -name "*.gradle" -type f -exec sed -i 's/repositories {/repositories { jcenter(); /g' {} +
           
-          # نضيف المخازن أيضاً للاحتياط
-          sed -i 's/repositories {/repositories { google(); jcenter(); maven { url "https:\/\/maven.google.com" }/' platforms/android/build.gradle
-      # --------------------------------------------------------
+          # 2. إنشاء ملف extras لإجبار استخدام نسخة متوفرة من المكتبة (2.9.6)
+          # لأن النسخة 2.6.1 قد تكون محذوفة تماماً حتى من jcenter
+          echo 'configurations.all { resolutionStrategy { force "com.google.android.exoplayer:exoplayer:2.9.6" } }' >> platforms/android/build-extras.gradle
+          echo 'configurations.all { resolutionStrategy { force "com.google.android.exoplayer:exoplayer:2.9.6" } }' >> platforms/android/app/build-extras.gradle
+      # ------------------------------------
         
       - name: Build APK
         run: cordova build android --debug
