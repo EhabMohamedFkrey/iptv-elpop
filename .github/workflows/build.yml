@@ -42,13 +42,14 @@ jobs:
       - name: Add Android Platform
         run: cordova platform add android
 
-      # --- هذه هي الخطوة السحرية الجديدة لإصلاح الخطأ ---
-      - name: Fix Repositories (Add JCenter)
+      # --- التعديل الجوهري هنا ---
+      # نستخدم أمر find للبحث عن كل ملفات build.gradle وحقن jcenter فيها بذكاء
+      - name: Fix Repositories (Add JCenter Forcefully)
         run: |
-          # نقوم بحقن jcenter داخل ملفات الجرادل لأن المكتبة قديمة
-          sed -i 's/repositories {/repositories { jcenter();/' platforms/android/build.gradle
-          sed -i 's/repositories {/repositories { jcenter();/' platforms/android/app/build.gradle || true
-      # ------------------------------------------------
+          echo "Adding JCenter to all build.gradle files..."
+          find platforms/android -name "build.gradle" -exec sed -i 's/google()/google(); jcenter()/g' {} +
+          find platforms/android -name "build.gradle" -exec sed -i 's/mavenCentral()/mavenCentral(); jcenter()/g' {} +
+      # --------------------------
         
       - name: Build APK
         run: cordova build android --debug
