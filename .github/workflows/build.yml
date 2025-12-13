@@ -29,11 +29,9 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      # --- التعديل هنا: استخدام المسار الكامل للأداة ---
       - name: Install Android SDK Tools
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33"
-      # ------------------------------------------------
           
       - name: Install Cordova
         run: npm install -g cordova
@@ -43,6 +41,14 @@ jobs:
         
       - name: Add Android Platform
         run: cordova platform add android
+
+      # --- هذه هي الخطوة السحرية الجديدة لإصلاح الخطأ ---
+      - name: Fix Repositories (Add JCenter)
+        run: |
+          # نقوم بحقن jcenter داخل ملفات الجرادل لأن المكتبة قديمة
+          sed -i 's/repositories {/repositories { jcenter();/' platforms/android/build.gradle
+          sed -i 's/repositories {/repositories { jcenter();/' platforms/android/app/build.gradle || true
+      # ------------------------------------------------
         
       - name: Build APK
         run: cordova build android --debug
