@@ -29,9 +29,11 @@ jobs:
         with:
           gradle-version: '8.5'
 
+      # --- التعديل هنا: استخدام المسار الكامل للأداة ---
       - name: Install Android SDK Tools
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33"
+      # ------------------------------------------------
           
       - name: Install Cordova
         run: npm install -g cordova
@@ -41,19 +43,6 @@ jobs:
         
       - name: Add Android Platform
         run: cordova platform add android
-
-      # --- الخطوة المعدلة (الحل النووي) ---
-      - name: Force JCenter Globally
-        run: |
-          # 1. البحث في كل ملفات gradle وإضافة jcenter بالقوة في كل مكان
-          # هذا الأمر يضمن أن النظام سيبحث في jcenter مهما كان مكان الإعدادات
-          find platforms/android -name "*.gradle" -type f -exec sed -i 's/repositories {/repositories { jcenter(); /g' {} +
-          
-          # 2. إنشاء ملف extras لإجبار استخدام نسخة متوفرة من المكتبة (2.9.6)
-          # لأن النسخة 2.6.1 قد تكون محذوفة تماماً حتى من jcenter
-          echo 'configurations.all { resolutionStrategy { force "com.google.android.exoplayer:exoplayer:2.9.6" } }' >> platforms/android/build-extras.gradle
-          echo 'configurations.all { resolutionStrategy { force "com.google.android.exoplayer:exoplayer:2.9.6" } }' >> platforms/android/app/build-extras.gradle
-      # ------------------------------------
         
       - name: Build APK
         run: cordova build android --debug
@@ -63,3 +52,6 @@ jobs:
         with:
           name: iptv-player-app
           path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
+
+
+
