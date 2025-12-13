@@ -36,7 +36,7 @@ jobs:
       - name: Install Cordova
         run: npm install -g cordova
         
-      # تنظيف الكاش القديم لضمان تثبيت الإضافات بشكل صحيح
+      # تنظيف كامل لضمان عدم وجود ملفات قديمة
       - name: Clean Install
         run: |
           rm -rf node_modules
@@ -44,14 +44,19 @@ jobs:
           npm install
 
       # ========================================================
-      # خطوة الإصلاح الذكية: البحث عن الملف وإصلاحه أينما كان
+      # خطوة الإصلاح الشاملة: تعديل plugin.xml و build.gradle
       # ========================================================
       - name: Fix ExoPlayer Plugin
         run: |
-          echo "Searching for build.gradle files in plugin..."
-          # استخدام find للبحث عن أي ملف build.gradle داخل مجلد الإضافة وتعديله
-          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/compile /implementation /g' {} +
-          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/2.6.1/2.9.6/g' {} +
+          echo "Applying Fixes to ExoPlayer Plugin..."
+          
+          # 1. استبدال الإصدار القديم 2.6.1 بالإصدار 2.9.6 في جميع ملفات الإضافة (xml, gradle, java)
+          # هذا هو السطر السحري الذي سيحل مشكلة plugin.xml
+          find node_modules/cordova-plugin-exoplayer -type f -exec sed -i 's/2.6.1/2.9.6/g' {} +
+          
+          # 2. تحديث الأمر القديم compile إلى implementation في ملفات الجرادل فقط
+          find node_modules/cordova-plugin-exoplayer -name "*.gradle" -exec sed -i 's/compile /implementation /g' {} +
+          
           echo "Plugin Fixed Successfully!"
 
       - name: Add Android Platform
