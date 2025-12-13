@@ -36,45 +36,40 @@ jobs:
       - name: Install Cordova
         run: npm install -g cordova
         
-      # تنظيف كامل
-      - name: Clean Install
+      # 1. تنظيف وتثبيت المكتبات
+      - name: Clean Install Dependencies
         run: |
           rm -rf node_modules
           rm -f package-lock.json
           npm install
 
+      # ========================================================
+      # الخطوة الحاسمة: تعديل الإضافة في المصدر قبل إضافة الأندرويد
+      # ========================================================
+      - name: Patch ExoPlayer Plugin Source
+        run: |
+          echo "Starting Surgery on ExoPlayer Plugin..."
+          
+          # 1. تعديل ملف plugin.xml (المصدر الرئيسي للمشكلة)
+          # هذا الملف هو الذي يخبر كوردوفا أي نسخة يحملها، وتعديله ضروري جداً
+          find node_modules/cordova-plugin-exoplayer -name "plugin.xml" -exec sed -i 's/2.6.1/2.9.6/g' {} +
+          
+          # 2. تعديل ملف build.gradle الخاص بالإضافة
+          # تغيير الإصدار وتحديث الأمر compile القديم
+          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/2.6.1/2.9.6/g' {} +
+          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/compile /implementation /g' {} +
+          
+          echo "Plugin Source Patched Successfully!"
+
+      # 2. إضافة منصة الأندرويد (الآن ستأخذ النسخة المعدلة الصحيحة)
       - name: Add Android Platform
         run: cordova platform add android
 
-      # ========================================================
-      # الخطوة 1: إجبار النظام على استخدام JCenter (الحل للملف المفقود)
-      # ========================================================
-      - name: Inject JCenter Repository
+      # 3. التأكد من المستودعات (إجراء احترازي إضافي)
+      - name: Ensure Google Repositories
         run: |
-          echo "Injecting JCenter into build.gradle..."
-          # نضيف jcenter() بعد google() ومستودع maven المركزي
-          sed -i 's/google()/google()\n        jcenter()/g' platforms/android/build.gradle
-          sed -i 's/mavenCentral()/mavenCentral()\n        jcenter()/g' platforms/android/build.gradle
-          echo "Repositories updated to include JCenter."
-
-      # ========================================================
-      # الخطوة 2: إصلاح كود الإضافة (تحديث الإصدار والأوامر)
-      # ========================================================
-      - name: Fix ExoPlayer Plugin
-        run: |
-          echo "Applying Fixes to ExoPlayer Plugin..."
+          sed -i 's/mavenCentral()/mavenCentral()\n        google()/g' platforms/android/build.gradle
           
-          # استبدال الإصدار القديم 2.6.1 بالإصدار 2.9.6 في جميع ملفات الإضافة
-          find node_modules/cordova-plugin-exoplayer -type f -exec sed -i 's/2.6.1/2.9.6/g' {} +
-          
-          # تحديث الأمر القديم compile إلى implementation
-          find node_modules/cordova-plugin-exoplayer -name "*.gradle" -exec sed -i 's/compile /implementation /g' {} +
-          
-          # تعديل بسيط لضمان التوافق مع Gradle الجديد في ملف الإضافة نفسه
-          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/jcenter()//g' {} +
-          
-          echo "Plugin Fixed Successfully!"
-        
       - name: Build APK
         run: cordova build android --debug
 
