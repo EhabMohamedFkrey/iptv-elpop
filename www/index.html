@@ -1832,38 +1832,56 @@
 
         // --- استبدل دالة playStream بالكامل بهذا الكود ---
 // --- دالة تشغيل الفيديو المعدلة (تدعم المشغل الداخلي) ---
+// --- دالة تشغيل الفيديو باستخدام ExoPlayer (المشغل الاحترافي) ---
 playStream = function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
     
-    // حفظ في السجل (History)
-    if(itemToSave) {
-        addToHistory(itemToSave);
-    }
+    // حفظ في السجل
+    if(itemToSave) addToHistory(itemToSave);
 
-    // 1. التحقق هل نحن داخل تطبيق أندرويد؟
-    if (window.cordova && window.plugins && window.plugins.streamingMedia) {
+    // 1. التحقق من وجود مشغل ExoPlayer
+    if (window.ExoPlayer) {
         
-        // إعدادات المشغل الداخلي
-        var options = {
-            successCallback: function() { console.log("Video was closed without error."); },
-            errorCallback: function(errMsg) { showError("خطأ في التشغيل: " + errMsg); },
-            orientation: 'landscape', // قفل الشاشة بالعرض
-            shouldAutoClose: true,  // إغلاق المشغل عند انتهاء الفيديو
-            controls: true // إظهار أزرار التحكم
+        // إعدادات المشغل لدعم MKV والترجمة
+        var parameters = {
+            url: url,
+            aspectRatio: 'FILL_SCREEN', // ملء الشاشة
+            autoPlay: true,
+            hideTimeout: 4000, // اختفاء التحكمات بعد 4 ثواني
+            
+            // إعدادات العنوان والترجمة
+            controller: {
+                streamImage: (itemToSave && itemToSave.cover) ? itemToSave.cover : '',
+                streamTitle: (itemToSave && itemToSave.name) ? itemToSave.name : 'IPTV Player',
+                streamDescription: type === 'live_stream' ? 'Live TV' : 'VOD',
+                hideProgress: type === 'live_stream', // إخفاء الشريط في البث المباشر
+                controlIcons: {
+                    'exo_rew': 'rewind.png',
+                    'exo_ffwd': 'fastforward.png'
+                }
+            },
+            
+            // هام جداً: تفعيل الترجمة
+            useExtensionDecoders: true, // تفعيل الكوديك المتقدم لـ MKV
+            connectTimeout: 10000,
+            readTimeout: 10000,
+            retryCount: 3
         };
 
-        // تشغيل الفيديو بالمشغل الأصلي (يدعم MKV وجميع الصيغ)
-        window.plugins.streamingMedia.playVideo(url, options);
+        // تشغيل الفيديو
+        window.ExoPlayer.show(parameters, function(success){
+            console.log("ExoPlayer Event: " + success.eventType);
+            // عند انتهاء الفيديو أو إغلاقه
+            if(success.eventType === 'STOPPED' || success.eventType === 'ENDED') {
+                window.ExoPlayer.close();
+            }
+        }, function(error){
+            showError("خطأ في المشغل: " + error);
+        });
         
-        // ملاحظة: هذا المشغل سيظهر فوق تطبيقك ويغطيه بالكامل أثناء المشاهدة
         return; 
     }
 
-    // 2. إذا لم نكن في التطبيق (متصفح عادي)، نستخدم المشغل القديم
-    
-    // ... (باقي كود المشغل القديم الخاص بك كما هو للنسخة الويب) ...
-    // فقط ضع كود HTML Player القديم هنا كـ Else
-    
-    // سأكتب لك الجزء المختصر هنا لضمان عمل الكود:
+    // 2. Fallback للمتصفح (عند التجربة على الكمبيوتر)
     history.pushState({ view: 'player' }, "", "");
     navigationStack.push({ view: 'player' });
     showView('player');
@@ -1887,6 +1905,7 @@ playStream = function(url, type, itemToSave = null, episodeList = [], episodeInd
     }
     initPlayerAndControls();
 };
+
 
 
 
