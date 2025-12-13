@@ -629,6 +629,7 @@
         let appFavorites = [];
         let appHistory = [];
         let appProgress = []; // قائمة لحفظ التقدم
+        let videoEndedListener = null; // متغير لحفظ مستمع انتهاء الفيديو
 
         const MAX_HISTORY = 15;
         const MAX_DASHBOARD_ITEMS = 50; // Increased for better view
@@ -1109,7 +1110,7 @@
             
             if(seasonKeys.length > 0) renderEpisodes(episodes[seasonKeys[0]]);
 
-            function renderEpisodes(eps) {
+                        function renderEpisodes(eps) {
                 epGrid.innerHTML = '';
                 eps.forEach(ep => {
                     const row = document.createElement('div');
@@ -1120,22 +1121,32 @@
                         <i class="fas fa-play-circle text-smarters-purple text-xl"></i>
                     `;
                     row.onclick = () => {
-                        const streamUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${ep.id}.${ep.container_extension}`;
+                        // --- [التصحيح الهام هنا] ---
+                        // استخدام mp4 افتراضياً إذا لم يرسل السيرفر الامتداد
+                        const ext = ep.container_extension || 'mp4'; 
+                        
+                        // تنظيف الرابط من https وتحويله لـ http لتجنب مشاكل التشغيل
+                        let cleanHost = currentCredentials.host.replace('https://', 'http://');
+                        if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
+
+                        const streamUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${ep.id}.${ext}`;
+                        
                         const epData = { 
                             ...ep, 
                             stream_id: ep.id, 
                             series_id: item.series_id, 
                             name: `${info.name} - ${ep.title}`, 
                             cover: coverImg, 
-                            type: 'series' 
+                            type: 'series',
+                            container_extension: ext // حفظ الامتداد الصحيح
                         };
                         playStream(streamUrl, 'series', epData, eps, eps.indexOf(ep));
                     };
                     epGrid.appendChild(row);
                 });
             }
-        }
 
+}
 
 
  
@@ -1879,9 +1890,9 @@
         // ==========================================
         // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
         // ==========================================
-                                                playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
+                                                        playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
             
-            // حفظ البيانات
+            // 1. حفظ البيانات
             currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
             if(itemToSave) addToHistory(itemToSave);
 
@@ -1891,14 +1902,20 @@
                 try {
                     const { CapacitorVideoPlayer } = Capacitor.Plugins;
                     
-                    // 1. إيقاف أي فيديو سابق
+                    // تنظيف أي مستمع سابق (هام جداً للمسلسلات)
+                    if (videoEndedListener) {
+                        await videoEndedListener.remove();
+                        videoEndedListener = null;
+                    }
+
+                    // إيقاف أي مشغل سابق
                     try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
 
-                    // 2. رفع طبقة المشغل للمقدمة
+                    // رفع طبقة المشغل
                     const playerDiv = document.getElementById('fullscreen-player');
                     if(playerDiv) playerDiv.style.zIndex = "9999";
 
-                    // 3. تشغيل الفيديو مع إعدادات آمنة (لمنع الكراش والشاشة السوداء)
+                    // مهلة لضمان الاستقرار
                     setTimeout(async () => {
                         await CapacitorVideoPlayer.initPlayer({
                             mode: 'fullscreen',
@@ -1906,35 +1923,49 @@
                             playerId: 'fullscreen-player',
                             componentTag: 'div',
                             
-                            // إعدادات الإصلاح:
-                            pipEnabled: false,      // تعطيل لمنع الكراش
-                            bkmodeEnabled: false,   // تعطيل لمنع الكراش
+                            pipEnabled: false,
+                            bkmodeEnabled: false,
                             
-                            // إعدادات المظهر والترجمة:
+                            // تحسين العناوين لتظهر بشكل صحيح
                             title: itemToSave ? itemToSave.name : '',
-                            subtitle: itemToSave && itemToSave.type === 'series' ? `Episode ${episodeIndex + 1}` : '',
-                            language: 'ar', // محاولة تفضيل العربية
+                            // إزالة النص الفرعي مؤقتاً لأنه قد يسبب مشاكل مع بعض السيرفرات
+                            subtitle: '', 
                             
-                            // إظهار تحكمات ExoPlayer الأصلية (قوية وتدعم الترجمة وتغيير الصوت)
+                            language: 'ar',
                             chromecast: false,
                             controls: true 
                         });
                     }, 100);
 
-                    // 4. التعامل مع انتهاء الفيديو (التالي)
-                    const listener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
+                    // إضافة مستمع جديد للانتقال للحلقة التالية
+                    videoEndedListener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
                          if(type === 'series' && episodeIndex < episodeList.length - 1) {
-                             // تشغيل الحلقة التالية
+                             // منطق الحلقة التالية
                              const nextIndex = episodeIndex + 1;
                              const nextEp = episodeList[nextIndex];
-                             const nextUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextEp.container_extension}`;
                              
-                             await listener.remove(); // إزالة المستمع الحالي
+                             // التأكد من الامتداد في الحلقة التالية أيضاً
+                             const nextExt = nextEp.container_extension || 'mp4';
+                             let cleanHost = currentCredentials.host.replace('https://', 'http://');
+                             if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
+
+                             const nextUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextExt}`;
+                             
+                             // تنظيف المستمع الحالي قبل الانتقال
+                             if(videoEndedListener) {
+                                 await videoEndedListener.remove();
+                                 videoEndedListener = null;
+                             }
+                             
                              playStream(nextUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
                          } else {
-                             // الخروج وإخفاء الطبقة
+                             // الخروج
                              await CapacitorVideoPlayer.stopAllPlayers();
                              if(playerDiv) playerDiv.style.zIndex = "-1";
+                             if(videoEndedListener) {
+                                 await videoEndedListener.remove();
+                                 videoEndedListener = null;
+                             }
                          }
                     });
 
@@ -1946,6 +1977,7 @@
                 playWebStream(url, type, itemToSave, episodeList, episodeIndex);
             }
         };
+
 
 
 
@@ -2038,7 +2070,7 @@
         // ==========================================
         // 3. دالة إيقاف المشغل (تنظيف)
         // ==========================================
-                function stopStream() {
+                        async function stopStream() { // حولناها لـ async
             const vPlayer = document.getElementById('videoPlayer');
             if(vPlayer) {
                 vPlayer.pause();
@@ -2049,13 +2081,19 @@
             
             document.getElementById('player-view').classList.add('hidden');
             
-            // [تعديل هام]: إعادة طبقة المشغل الأصلي للخلفية
             const nativeDiv = document.getElementById('fullscreen-player');
             if(nativeDiv) nativeDiv.style.zIndex = "-1";
+            
+            // تنظيف المستمع عند الإيقاف اليدوي
+            if (videoEndedListener) {
+                await videoEndedListener.remove();
+                videoEndedListener = null;
+            }
 
             if (document.fullscreenElement) document.exitFullscreen().catch(err => {});
             if(screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
         }
+
 
 
               // ==========================================
@@ -2534,7 +2572,7 @@ function removeProgress(item) {
 
 
 
-
+    }); // End DOMContentLoaded
    
 
 
@@ -2542,7 +2580,7 @@ function removeProgress(item) {
 
 
 
-    }); // End DOMContentLoaded
+
     </script>
 
 
