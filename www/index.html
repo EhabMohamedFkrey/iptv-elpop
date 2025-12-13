@@ -1110,7 +1110,8 @@
             
             if(seasonKeys.length > 0) renderEpisodes(episodes[seasonKeys[0]]);
 
-                        function renderEpisodes(eps) {
+                                    // دالة رسم الحلقات (معدلة لإصلاح الروابط)
+            function renderEpisodes(eps) {
                 epGrid.innerHTML = '';
                 eps.forEach(ep => {
                     const row = document.createElement('div');
@@ -1121,15 +1122,22 @@
                         <i class="fas fa-play-circle text-smarters-purple text-xl"></i>
                     `;
                     row.onclick = () => {
-                        // --- [التصحيح الهام هنا] ---
-                        // استخدام mp4 افتراضياً إذا لم يرسل السيرفر الامتداد
-                        const ext = ep.container_extension || 'mp4'; 
-                        
-                        // تنظيف الرابط من https وتحويله لـ http لتجنب مشاكل التشغيل
+                        // 1. التعامل الذكي مع الامتداد (MKV/MP4)
+                        let ext = ep.container_extension;
+                        if (!ext || ext.trim() === '') ext = 'mp4'; // افتراضي
+                        // تنظيف الامتداد من أي نقاط إضافية
+                        ext = ext.replace('.', '');
+
+                        // 2. تجهيز الهوست (تحويل HTTPS إلى HTTP لتجنب مشاكل الشهادات في التطبيق)
                         let cleanHost = currentCredentials.host.replace('https://', 'http://');
                         if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
 
-                        const streamUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${ep.id}.${ext}`;
+                        // 3. بناء الرابط الخام
+                        let rawUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${ep.id}.${ext}`;
+                        
+                        // 4. [هام جداً] تشفير الرابط ليقبله مشغل الأندرويد
+                        // هذا يحل مشكلة Video URL not found إذا كان الاسم يحتوي مسافات
+                        const streamUrl = encodeURI(rawUrl);
                         
                         const epData = { 
                             ...ep, 
@@ -1138,14 +1146,13 @@
                             name: `${info.name} - ${ep.title}`, 
                             cover: coverImg, 
                             type: 'series',
-                            container_extension: ext // حفظ الامتداد الصحيح
+                            container_extension: ext 
                         };
                         playStream(streamUrl, 'series', epData, eps, eps.indexOf(ep));
                     };
                     epGrid.appendChild(row);
                 });
             }
-
 }
 
 
@@ -1890,7 +1897,7 @@
         // ==========================================
         // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
         // ==========================================
-                                                        playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
+                                                                playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
             
             // 1. حفظ البيانات
             currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
@@ -1902,56 +1909,58 @@
                 try {
                     const { CapacitorVideoPlayer } = Capacitor.Plugins;
                     
-                    // تنظيف أي مستمع سابق (هام جداً للمسلسلات)
+                    // تنظيف المستمع السابق
                     if (videoEndedListener) {
                         await videoEndedListener.remove();
                         videoEndedListener = null;
                     }
 
-                    // إيقاف أي مشغل سابق
                     try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
 
                     // رفع طبقة المشغل
                     const playerDiv = document.getElementById('fullscreen-player');
                     if(playerDiv) playerDiv.style.zIndex = "9999";
 
-                    // مهلة لضمان الاستقرار
+                    // التأكد من تشفير الرابط (خطوة أمان إضافية)
+                    const finalUrl = encodeURI(url);
+                    console.log("Playing Native URL:", finalUrl);
+
                     setTimeout(async () => {
                         await CapacitorVideoPlayer.initPlayer({
                             mode: 'fullscreen',
-                            url: url,
+                            url: finalUrl, // استخدام الرابط المشفر
                             playerId: 'fullscreen-player',
                             componentTag: 'div',
                             
                             pipEnabled: false,
                             bkmodeEnabled: false,
                             
-                            // تحسين العناوين لتظهر بشكل صحيح
                             title: itemToSave ? itemToSave.name : '',
-                            // إزالة النص الفرعي مؤقتاً لأنه قد يسبب مشاكل مع بعض السيرفرات
+                            // تركنا الترجمة فارغة ليقوم المشغل باكتشاف الترجمة المدمجة داخل الفيديو
                             subtitle: '', 
                             
-                            language: 'ar',
+                            language: 'ar', 
                             chromecast: false,
-                            controls: true 
+                            controls: true // هذا يظهر شريط التحكم والتشغيل
                         });
                     }, 100);
 
-                    // إضافة مستمع جديد للانتقال للحلقة التالية
+                    // مستمع الانتقال للحلقة التالية
                     videoEndedListener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
                          if(type === 'series' && episodeIndex < episodeList.length - 1) {
-                             // منطق الحلقة التالية
                              const nextIndex = episodeIndex + 1;
                              const nextEp = episodeList[nextIndex];
                              
-                             // التأكد من الامتداد في الحلقة التالية أيضاً
-                             const nextExt = nextEp.container_extension || 'mp4';
+                             let nextExt = nextEp.container_extension;
+                             if (!nextExt || nextExt.trim() === '') nextExt = 'mp4';
+                             nextExt = nextExt.replace('.', '');
+
                              let cleanHost = currentCredentials.host.replace('https://', 'http://');
                              if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
 
-                             const nextUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextExt}`;
+                             let nextRawUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextExt}`;
+                             const nextUrl = encodeURI(nextRawUrl); // تشفير الرابط التالي أيضاً
                              
-                             // تنظيف المستمع الحالي قبل الانتقال
                              if(videoEndedListener) {
                                  await videoEndedListener.remove();
                                  videoEndedListener = null;
@@ -1959,7 +1968,6 @@
                              
                              playStream(nextUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
                          } else {
-                             // الخروج
                              await CapacitorVideoPlayer.stopAllPlayers();
                              if(playerDiv) playerDiv.style.zIndex = "-1";
                              if(videoEndedListener) {
@@ -1971,12 +1979,14 @@
 
                 } catch (e) {
                     console.error("Native Error:", e);
+                    // في حال الفشل التام، نعود لمشغل الويب
                     playWebStream(url, type, itemToSave, episodeList, episodeIndex);
                 }
             } else {
                 playWebStream(url, type, itemToSave, episodeList, episodeIndex);
             }
         };
+
 
 
 
