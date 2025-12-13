@@ -1834,12 +1834,10 @@
         // ==========================================
         // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
         // ==========================================
-        playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
+                playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
             
-            // حفظ المعلومات الحالية
+            // 1. حفظ البيانات والسجل
             currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
-            
-            // حفظ في السجل (History)
             if(itemToSave) {
                 if(document.getElementById('player-overlay-title')) {
                     document.getElementById('player-overlay-title').textContent = itemToSave.name;
@@ -1847,18 +1845,21 @@
                 addToHistory(itemToSave);
             }
 
-            // فحص آمن: هل نحن في تطبيق أندرويد (Native)؟
+            // 2. التحقق من المنصة
             const isNative = (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform());
 
             if (isNative) {
-                // --- مسار الأندرويد (Native Player) ---
+                // === مسار الأندرويد (Native) ===
                 try {
                     const { CapacitorVideoPlayer } = Capacitor.Plugins;
+
+                    // التأكد من أن المشغل توقف قبل البدء من جديد (لتجنب التعارض)
+                    try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
 
                     await CapacitorVideoPlayer.initPlayer({
                         mode: 'fullscreen',
                         url: url,
-                        playerId: 'fullscreen-player',
+                        playerId: 'fullscreen-player', // هذا الـ ID يجب أن يكون موجوداً في HTML
                         componentTag: 'div',
                         pipEnabled: true, 
                         bkmodeEnabled: true,
@@ -1866,28 +1867,28 @@
                         subtitle: itemToSave && itemToSave.type === 'series' ? `Episode ${episodeIndex + 1}` : '',
                     });
 
-                    // مستمع لحدث الانتهاء (لتشغيل الحلقة التالية)
-                    const listener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', (data) => {
+                    // التعامل مع نهاية الفيديو (للمسلسلات)
+                    const listener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
                          if(type === 'series' && episodeIndex < episodeList.length - 1) {
                              const nextIndex = episodeIndex + 1;
                              const nextEp = episodeList[nextIndex];
                              const nextUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextEp.container_extension}`;
-                             // إزالة المستمع القديم لتجنب التكرار
-                             listener.remove();
+                             
+                             await listener.remove(); // تنظيف المستمع
                              playStream(nextUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
                          } else {
-                             CapacitorVideoPlayer.stopAllPlayers();
+                             await CapacitorVideoPlayer.stopAllPlayers();
                          }
                     });
 
                 } catch (e) {
-                    console.error("Error playing native video", e);
-                    // في حال فشل المشغل الأصلي، نعود لمشغل الويب
+                    console.error("Native Player Error:", e);
+                    // في حال الفشل، حاول استخدام مشغل الويب كبديل
                     playWebStream(url, type, itemToSave, episodeList, episodeIndex);
                 }
 
             } else {
-                // --- مسار المتصفح (Web Player) ---
+                // === مسار المتصفح (Web) ===
                 playWebStream(url, type, itemToSave, episodeList, episodeIndex);
             }
         };
@@ -2559,6 +2560,10 @@ function removeProgress(item) {
 
     });
 </script>
+
+
+<div id="fullscreen-player" style="position: absolute; top: -1000px; left: -1000px; width: 1px; height: 1px;"></div>
+
 </body>
 </html>
 
