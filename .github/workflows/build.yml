@@ -36,18 +36,22 @@ jobs:
       - name: Install Cordova
         run: npm install -g cordova
         
-      - name: Install Dependencies
-        run: npm install
+      # تنظيف الكاش القديم لضمان تثبيت الإضافات بشكل صحيح
+      - name: Clean Install
+        run: |
+          rm -rf node_modules
+          rm -f package-lock.json
+          npm install
 
       # ========================================================
-      # خطوة الإصلاح: تعديل كود الإضافة القديم ليتوافق مع الحديث
+      # خطوة الإصلاح الذكية: البحث عن الملف وإصلاحه أينما كان
       # ========================================================
       - name: Fix ExoPlayer Plugin
         run: |
-          # استبدال الأمر القديم compile بالأمر الجديد implementation
-          sed -i 's/compile /implementation /g' node_modules/cordova-plugin-exoplayer/src/android/build.gradle
-          # تحديث إصدار ExoPlayer من 2.6.1 المفقود إلى 2.9.6 الموجود
-          sed -i 's/2.6.1/2.9.6/g' node_modules/cordova-plugin-exoplayer/src/android/build.gradle
+          echo "Searching for build.gradle files in plugin..."
+          # استخدام find للبحث عن أي ملف build.gradle داخل مجلد الإضافة وتعديله
+          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/compile /implementation /g' {} +
+          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/2.6.1/2.9.6/g' {} +
           echo "Plugin Fixed Successfully!"
 
       - name: Add Android Platform
