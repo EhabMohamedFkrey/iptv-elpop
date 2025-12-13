@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="com.youssef.iptv.pro" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+<widget id="com.youssef.iptv.pro" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0" xmlns:android="http://schemas.android.com/apk/res/android">
     <name>IPTV Smarters Pro</name>
     <description>Professional IPTV Player</description>
     <author email="dev@example.com" href="http://example.com">Youssef Dev</author>
@@ -15,7 +15,10 @@
         <preference name="android-minSdkVersion" value="22" />
         <preference name="android-targetSdkVersion" value="33" />
         <preference name="HardwareAcceleration" value="true" />
-        <application android:usesCleartextTraffic="true" />
+        
+        <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest/application">
+            <application android:usesCleartextTraffic="true" />
+        </edit-config>
     </platform>
 
     <preference name="Orientation" value="default" />
