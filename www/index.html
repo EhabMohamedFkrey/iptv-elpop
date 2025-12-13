@@ -570,6 +570,51 @@
     <script>
     document.addEventListener('DOMContentLoaded', () => {
 
+
+        // استدعاء مكتبة App للتحكم في زر الرجوع
+        if (typeof Capacitor !== 'undefined') {
+            const { App } = Capacitor.Plugins;
+            const { CapacitorVideoPlayer } = Capacitor.Plugins;
+
+            App.addListener('backButton', async () => {
+                // 1. هل هناك فيديو يعمل في المشغل الأصلي؟
+                const playerDiv = document.getElementById('fullscreen-player');
+                
+                // نفحص إذا كان المشغل في المقدمة (يعني شغال)
+                if (playerDiv && playerDiv.style.zIndex === "9999") {
+                    // نعم، فيديو شغال -> أوقفه فقط ولا تخرج من التطبيق
+                    await CapacitorVideoPlayer.stopAllPlayers();
+                    playerDiv.style.zIndex = "-1"; // إخفاء الطبقة
+                    return; // توقف هنا ولا تغلق التطبيق
+                }
+
+                // 2. هل المودال (النوافذ المنبثقة) مفتوح؟
+                if (!document.getElementById('search-results-overlay').classList.contains('hidden')) {
+                    toggleSearch();
+                    return;
+                }
+                if (!document.getElementById('accounts-modal').classList.contains('hidden')) {
+                    document.getElementById('accounts-modal').classList.add('hidden');
+                    return;
+                }
+
+                // 3. هل نحن في صفحة داخلية؟ (Content View)
+                if (!document.getElementById('content-view').classList.contains('hidden')) {
+                    window.history.back(); // رجوع برمجي للصفحة السابقة
+                    return;
+                }
+
+                // 4. إذا كنا في الرئيسية، اغلق التطبيق
+                if (!document.getElementById('main-menu-view').classList.contains('hidden')) {
+                    App.exitApp();
+                }
+            });
+        }
+
+
+
+
+
         // --- متغيرات عامة ---
         let currentCredentials = {};
         let apiBaseUrl = '';
@@ -1834,56 +1879,74 @@
         // ==========================================
         // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
         // ==========================================
-                                        playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
+                                                playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
             
-            // حفظ البيانات والسجل
+            // حفظ البيانات
             currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
-            if(itemToSave) {
-                if(document.getElementById('player-overlay-title')) {
-                    document.getElementById('player-overlay-title').textContent = itemToSave.name;
-                }
-                addToHistory(itemToSave);
-            }
+            if(itemToSave) addToHistory(itemToSave);
 
             const isNative = (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform());
 
             if (isNative) {
-                // === استخدام المشغل المستقر (Streaming Media) ===
-                // هذا المشغل يفتح نافذة فيديو أصلية فوق التطبيق
-                if (window.plugins && window.plugins.streamingMedia) {
+                try {
+                    const { CapacitorVideoPlayer } = Capacitor.Plugins;
                     
-                    var options = {
-                        successCallback: function() {
-                            // عند إغلاق الفيديو (بالرجوع أو الانتهاء)
-                            console.log("Video closed");
-                            // إذا كان مسلسلاً، نحاول تشغيل الحلقة التالية
-                            if(type === 'series' && episodeIndex < episodeList.length - 1) {
-                                // ملاحظة: هذا المشغل لا يرسل حدث "انتهاء" دقيق، بل حدث "إغلاق"
-                                // لذا قد يحتاج المستخدم لتشغيل الحلقة التالية يدوياً، أو يمكنك تفعيل التالي تلقائياً
-                            }
-                        },
-                        errorCallback: function(e) {
-                            console.log("Error playing video");
-                            playWebStream(url, type, itemToSave, episodeList, episodeIndex);
-                        },
-                        orientation: 'landscape', // إجبار الوضع الأفقي
-                        shouldAutoClose: true,  // إغلاق عند الانتهاء
-                        controls: true // إظهار أزرار التحكم
-                    };
+                    // 1. إيقاف أي فيديو سابق
+                    try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
 
-                    // تشغيل الفيديو
-                    window.plugins.streamingMedia.playVideo(url, options);
+                    // 2. رفع طبقة المشغل للمقدمة
+                    const playerDiv = document.getElementById('fullscreen-player');
+                    if(playerDiv) playerDiv.style.zIndex = "9999";
 
-                } else {
-                    // في حالة عدم تحميل الإضافة، نستخدم الويب
+                    // 3. تشغيل الفيديو مع إعدادات آمنة (لمنع الكراش والشاشة السوداء)
+                    setTimeout(async () => {
+                        await CapacitorVideoPlayer.initPlayer({
+                            mode: 'fullscreen',
+                            url: url,
+                            playerId: 'fullscreen-player',
+                            componentTag: 'div',
+                            
+                            // إعدادات الإصلاح:
+                            pipEnabled: false,      // تعطيل لمنع الكراش
+                            bkmodeEnabled: false,   // تعطيل لمنع الكراش
+                            
+                            // إعدادات المظهر والترجمة:
+                            title: itemToSave ? itemToSave.name : '',
+                            subtitle: itemToSave && itemToSave.type === 'series' ? `Episode ${episodeIndex + 1}` : '',
+                            language: 'ar', // محاولة تفضيل العربية
+                            
+                            // إظهار تحكمات ExoPlayer الأصلية (قوية وتدعم الترجمة وتغيير الصوت)
+                            chromecast: false,
+                            controls: true 
+                        });
+                    }, 100);
+
+                    // 4. التعامل مع انتهاء الفيديو (التالي)
+                    const listener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
+                         if(type === 'series' && episodeIndex < episodeList.length - 1) {
+                             // تشغيل الحلقة التالية
+                             const nextIndex = episodeIndex + 1;
+                             const nextEp = episodeList[nextIndex];
+                             const nextUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextEp.container_extension}`;
+                             
+                             await listener.remove(); // إزالة المستمع الحالي
+                             playStream(nextUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
+                         } else {
+                             // الخروج وإخفاء الطبقة
+                             await CapacitorVideoPlayer.stopAllPlayers();
+                             if(playerDiv) playerDiv.style.zIndex = "-1";
+                         }
+                    });
+
+                } catch (e) {
+                    console.error("Native Error:", e);
                     playWebStream(url, type, itemToSave, episodeList, episodeIndex);
                 }
-
             } else {
-                // === للمتصفح ===
                 playWebStream(url, type, itemToSave, episodeList, episodeIndex);
             }
         };
+
 
 
 
@@ -2560,6 +2623,7 @@ function removeProgress(item) {
     });
 </script>
 
+<div id="fullscreen-player" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; background: transparent;"></div>
 
 
 
