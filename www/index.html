@@ -1899,9 +1899,9 @@
         // ==========================================
         // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
         // ==========================================
-                   playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
+                           playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
             
-            // 1. حفظ البيانات
+            // 1. حفظ البيانات والسجل
             currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
             if(itemToSave) addToHistory(itemToSave);
 
@@ -1911,53 +1911,68 @@
                 try {
                     const { CapacitorVideoPlayer } = Capacitor.Plugins;
                     
-                    // تنظيف السابق
+                    // تنظيف أي فيديو سابق
                     if (videoEndedListener) {
                         await videoEndedListener.remove();
                         videoEndedListener = null;
                     }
                     try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
 
-                    // رفع الطبقة
+                    // رفع طبقة المشغل للمقدمة
                     const playerDiv = document.getElementById('fullscreen-player');
                     if(playerDiv) playerDiv.style.zIndex = "9999";
 
-                    // تشفير الرابط
-                    const finalUrl = encodeURI(url);
+                    // --- [مرحلة التجهيز القصوى للرابط] ---
+                    
+                    // 1. تنظيف الرابط من المسافات
+                    let cleanUrl = url.trim();
+                    
+                    // 2. إجبار http (لأن https يسبب مشاكل مع سيرفرات IPTV القديمة)
+                    if (cleanUrl.startsWith('https://')) {
+                        cleanUrl = cleanUrl.replace('https://', 'http://');
+                    }
+
+                    // 3. تشفير الرابط (يحل مشكلة الرموز الخاصة في اسم الملف)
+                    const finalUrl = encodeURI(cleanUrl);
+                    
+                    console.log("Native Playing:", finalUrl);
 
                     setTimeout(async () => {
                         await CapacitorVideoPlayer.initPlayer({
                             mode: 'fullscreen',
-                            url: finalUrl,
+                            url: finalUrl, 
                             playerId: 'fullscreen-player',
                             componentTag: 'div',
                             
-                            // [تعديل هام 1]: إضافة الهوية للسيرفر
+                            // [السر]: إرسال هوية Smarters ليقبل السيرفر الاتصال
                             headers: {
                                 'User-Agent': 'IPTVSmartersPro',
                             },
 
                             pipEnabled: false,
                             bkmodeEnabled: false,
+                            
                             title: itemToSave ? itemToSave.name : '',
-                            subtitle: '', 
+                            subtitle: '', // نترك المشغل يكتشف الترجمة المدمجة (MKV)
+                            
                             language: 'ar', 
                             chromecast: false,
                             controls: true 
                         });
                     }, 100);
 
-                    // مستمع التالي
+                    // مستمع الانتقال للحلقة التالية
                     videoEndedListener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
                          if(type === 'series' && episodeIndex < episodeList.length - 1) {
                              const nextIndex = episodeIndex + 1;
                              const nextEp = episodeList[nextIndex];
                              
-                             // [تعديل هام 2]: جعل الامتداد الافتراضي mkv للمسلسلات
+                             // التأكد من الامتداد للحلقة التالية
                              let nextExt = nextEp.container_extension;
-                             if (!nextExt || nextExt.trim() === '') nextExt = 'mkv'; // غيرنا من mp4 لـ mkv
+                             if (!nextExt || nextExt.trim() === '' || nextExt === 'undefined') nextExt = 'mkv';
                              nextExt = nextExt.replace('.', '');
 
+                             // تنظيف الهوست للحلقة التالية
                              let cleanHost = currentCredentials.host.replace('https://', 'http://');
                              if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
 
@@ -1967,6 +1982,7 @@
                                  await videoEndedListener.remove();
                                  videoEndedListener = null;
                              }
+                             // نمرر الرابط الخام playStream ستقوم بتشفيره
                              playStream(nextRawUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
                          } else {
                              await CapacitorVideoPlayer.stopAllPlayers();
@@ -1980,13 +1996,13 @@
 
                 } catch (e) {
                     console.error("Native Error:", e);
+                    // في حالة الفشل التام، نحاول الويب (رغم أنه قد لا يعمل مع هذا الفيديو تحديداً)
                     playWebStream(url, type, itemToSave, episodeList, episodeIndex);
                 }
             } else {
                 playWebStream(url, type, itemToSave, episodeList, episodeIndex);
             }
         };
-
 
 
 
