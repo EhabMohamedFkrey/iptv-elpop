@@ -11,13 +11,14 @@
     <allow-intent href="https://*/*" />
 
     <platform name="android">
+        <resource-file src="www/network_security_config.xml" target="app/src/main/res/xml/network_security_config.xml" />
+
         <preference name="AndroidXEnabled" value="true" />
         <preference name="android-minSdkVersion" value="22" />
         <preference name="android-targetSdkVersion" value="33" />
-        <preference name="HardwareAcceleration" value="true" />
         
         <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest/application">
-            <application android:usesCleartextTraffic="true" />
+            <application android:usesCleartextTraffic="true" android:networkSecurityConfig="@xml/network_security_config" />
         </edit-config>
     </platform>
 
