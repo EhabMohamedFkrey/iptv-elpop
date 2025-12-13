@@ -19,7 +19,8 @@
     "cordova-plugin-screen-orientation": "^3.0.3",
     "cordova-plugin-device": "^2.1.0",
     "cordova-plugin-inappbrowser": "^5.0.0",
-    "cordova-plugin-exoplayer": "2.5.4"
+    "cordova-plugin-exoplayer": "2.5.4",
+    "cordova-plugin-androidx-adapter": "^1.1.3"
   },
   "cordova": {
     "plugins": {
@@ -28,7 +29,8 @@
       "cordova-plugin-screen-orientation": {},
       "cordova-plugin-device": {},
       "cordova-plugin-inappbrowser": {},
-      "cordova-plugin-exoplayer": {}
+      "cordova-plugin-exoplayer": {},
+      "cordova-plugin-androidx-adapter": {}
     },
     "platforms": [
       "android"
