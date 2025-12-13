@@ -1835,63 +1835,68 @@
         // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
         // ==========================================
                 playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
-            
-            // 1. حفظ البيانات والسجل
-            currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
-            if(itemToSave) {
-                if(document.getElementById('player-overlay-title')) {
-                    document.getElementById('player-overlay-title').textContent = itemToSave.name;
-                }
-                addToHistory(itemToSave);
-            }
+    
+    // حفظ البيانات
+    currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
+    if(itemToSave) {
+        if(document.getElementById('player-overlay-title')) {
+            document.getElementById('player-overlay-title').textContent = itemToSave.name;
+        }
+        addToHistory(itemToSave);
+    }
 
-            // 2. التحقق من المنصة
-            const isNative = (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform());
+    const isNative = (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform());
 
-            if (isNative) {
-                // === مسار الأندرويد (Native) ===
+    if (isNative) {
+        try {
+            const { CapacitorVideoPlayer } = Capacitor.Plugins;
+
+            // إيقاف أي مشغل سابق أولاً
+            try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
+
+            // [هام جداً] إضافة مهلة صغيرة (50ms) لضمان أن الـ Div جاهز في الذاكرة
+            setTimeout(async () => {
                 try {
-                    const { CapacitorVideoPlayer } = Capacitor.Plugins;
-
-                    // التأكد من أن المشغل توقف قبل البدء من جديد (لتجنب التعارض)
-                    try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
-
                     await CapacitorVideoPlayer.initPlayer({
                         mode: 'fullscreen',
                         url: url,
-                        playerId: 'fullscreen-player', // هذا الـ ID يجب أن يكون موجوداً في HTML
+                        playerId: 'fullscreen-player',
                         componentTag: 'div',
                         pipEnabled: true, 
                         bkmodeEnabled: true,
                         title: itemToSave ? itemToSave.name : 'IPTV Player',
                         subtitle: itemToSave && itemToSave.type === 'series' ? `Episode ${episodeIndex + 1}` : '',
                     });
-
-                    // التعامل مع نهاية الفيديو (للمسلسلات)
-                    const listener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
-                         if(type === 'series' && episodeIndex < episodeList.length - 1) {
-                             const nextIndex = episodeIndex + 1;
-                             const nextEp = episodeList[nextIndex];
-                             const nextUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextEp.container_extension}`;
-                             
-                             await listener.remove(); // تنظيف المستمع
-                             playStream(nextUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
-                         } else {
-                             await CapacitorVideoPlayer.stopAllPlayers();
-                         }
-                    });
-
-                } catch (e) {
-                    console.error("Native Player Error:", e);
-                    // في حال الفشل، حاول استخدام مشغل الويب كبديل
+                } catch (innerError) {
+                    console.error("Init Error:", innerError);
+                    // في حال فشل الأصلي، نلجأ للويب
                     playWebStream(url, type, itemToSave, episodeList, episodeIndex);
                 }
+            }, 50); // تأخير بسيط جداً لكنه جوهري
 
-            } else {
-                // === مسار المتصفح (Web) ===
-                playWebStream(url, type, itemToSave, episodeList, episodeIndex);
-            }
-        };
+            // مستمع الحدث
+            const listener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
+                 if(type === 'series' && episodeIndex < episodeList.length - 1) {
+                     const nextIndex = episodeIndex + 1;
+                     const nextEp = episodeList[nextIndex];
+                     const nextUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextEp.container_extension}`;
+                     await listener.remove();
+                     playStream(nextUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
+                 } else {
+                     await CapacitorVideoPlayer.stopAllPlayers();
+                 }
+            });
+
+        } catch (e) {
+            console.error("Native Setup Error:", e);
+            playWebStream(url, type, itemToSave, episodeList, episodeIndex);
+        }
+
+    } else {
+        playWebStream(url, type, itemToSave, episodeList, episodeIndex);
+    }
+};
+
 
         // ==========================================
         // 2. دالة مشغل الويب (المفقودة سابقاً)
@@ -2562,7 +2567,10 @@ function removeProgress(item) {
 </script>
 
 
-<div id="fullscreen-player" style="position: absolute; top: -1000px; left: -1000px; width: 1px; height: 1px;"></div>
+<div id="fullscreen-player" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -50; pointer-events: none; background: transparent;"></div>
+
+
+
 
 </body>
 </html>
