@@ -1853,34 +1853,35 @@ playStream = function(url, type, itemToSave = null, episodeList = [], episodeInd
         var parameters = {
             url: url,
             userAgent: 'IPTV Smarters Pro', 
-            aspectRatio: 'FILL_SCREEN', // ملء الشاشة تلقائياً
-            hideTimeout: 4000, // إخفاء الأزرار بعد 4 ثواني
+            aspectRatio: 'FILL_SCREEN', 
+            hideTimeout: 4000, 
             autoPlay: true,
             
-            // إعدادات التحكم الكاملة (هنا يظهر زر CC وزر الصوت)
+            // إعدادات الشبكة ومحاولة إعادة الاتصال (توضع هنا في المستوى الرئيسي)
+            connectTimeout: 10000,
+            readTimeout: 10000,
+            retryCount: 3,
+            
+            // إعدادات واجهة التحكم (توضع في كائن منفصل)
             controls: {
-                action: 'MODAL', // واجهة تحكم كاملة
+                action: 'MODAL',
                 title: title,
                 subtitle: subTitle,
                 streamImage: logo,
-                
-                // السماح بالتحكم في الصوت والترجمة
                 hideToolbar: false,
-                showAudioAction: true, // إظهار زر تغيير الصوت (للمدبلج)
-                showSubtitleAction: true // إظهار زر الترجمة (للملفات MKV)
-            },
-            
-            // محاولة إعادة الاتصال لو النت فصل
-            connectTimeout: 10000,
-            readTimeout: 10000,
-            retryCount: 3
+                
+                // هذه الأسطر مهمة جداً للإصدار 2.5.4 لظهور أزرار الصوت والترجمة
+                showAudioAction: true, 
+                showSubtitleAction: true,
+                showPlayerControls: true 
+            }
         };
 
         // تشغيل الفيديو
         window.ExoPlayer.show(parameters, function(success) {
             console.log("ExoPlayer Event: " + success.eventType);
             
-            // ميزة التشغيل التلقائي للحلقة التالية
+            // ميزة التشغيل التلقائي للحلقة التالية عند انتهاء الحلقة الحالية
             if(success.eventType === 'FINISHED' && type === 'series') {
                  playNextEpisodeAuto();
             }
@@ -1891,7 +1892,7 @@ playStream = function(url, type, itemToSave = null, episodeList = [], episodeInd
     } else {
         // Fallback في حالة التجربة على المتصفح فقط
         console.log("ExoPlayer plugin not found (Web Mode)");
-        // ... (يمكنك ترك كود HTML5 القديم هنا كبديل للطوارئ) ...
+        // تشغيل المشغل العادي HTML5 كبديل
         const vPlayer = document.getElementById('videoPlayer');
         vPlayer.src = url;
         showView('player');
