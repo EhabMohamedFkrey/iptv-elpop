@@ -42,14 +42,13 @@ jobs:
       - name: Add Android Platform
         run: cordova platform add android
 
-      # --- التعديل الجوهري هنا ---
-      # نستخدم أمر find للبحث عن كل ملفات build.gradle وحقن jcenter فيها بذكاء
-      - name: Fix Repositories (Add JCenter Forcefully)
+      # --- هذه الخطوة الجديدة (الحل الرسمي) ---
+      # ننشئ ملفاً يسمى build-extras.gradle يضيف مخزن jcenter بالقوة
+      - name: Create Build Extras (Force JCenter)
         run: |
-          echo "Adding JCenter to all build.gradle files..."
-          find platforms/android -name "build.gradle" -exec sed -i 's/google()/google(); jcenter()/g' {} +
-          find platforms/android -name "build.gradle" -exec sed -i 's/mavenCentral()/mavenCentral(); jcenter()/g' {} +
-      # --------------------------
+          echo 'allprojects { repositories { google(); jcenter(); maven { url "https://maven.google.com" } } }' > platforms/android/build-extras.gradle
+          echo 'allprojects { repositories { google(); jcenter(); maven { url "https://maven.google.com" } } }' > platforms/android/app/build-extras.gradle
+      # ----------------------------------------
         
       - name: Build APK
         run: cordova build android --debug
