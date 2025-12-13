@@ -1832,80 +1832,89 @@
 
         // --- استبدل دالة playStream بالكامل بهذا الكود ---
 // --- دالة تشغيل الفيديو المعدلة (تدعم المشغل الداخلي) ---
-// --- دالة تشغيل الفيديو باستخدام ExoPlayer (المشغل الاحترافي) ---
+// ============================================================
+// دالة التشغيل الاحترافية (ExoPlayer) - تدعم الترجمة وتغيير الصوت
+// ============================================================
 playStream = function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
     
-    // حفظ في السجل
-    if(itemToSave) addToHistory(itemToSave);
+    // حفظ في السجل (History)
+    if(itemToSave) {
+        addToHistory(itemToSave);
+    }
 
-    // 1. التحقق من وجود مشغل ExoPlayer
+    // تجهيز البيانات
+    const title = itemToSave ? (itemToSave.name || itemToSave.title) : "Video";
+    const subTitle = (type === 'live_stream') ? "Live TV" : (itemToSave?.category_name || "");
+    const logo = itemToSave ? (itemToSave.stream_icon || itemToSave.cover) : "";
+
+    // التحقق من وجود إضافة ExoPlayer (التي أضفناها في package.json)
     if (window.ExoPlayer) {
         
-        // إعدادات المشغل لدعم MKV والترجمة
         var parameters = {
             url: url,
-            aspectRatio: 'FILL_SCREEN', // ملء الشاشة
+            userAgent: 'IPTV Smarters Pro', 
+            aspectRatio: 'FILL_SCREEN', // ملء الشاشة تلقائياً
+            hideTimeout: 4000, // إخفاء الأزرار بعد 4 ثواني
             autoPlay: true,
-            hideTimeout: 4000, // اختفاء التحكمات بعد 4 ثواني
             
-            // إعدادات العنوان والترجمة
-            controller: {
-                streamImage: (itemToSave && itemToSave.cover) ? itemToSave.cover : '',
-                streamTitle: (itemToSave && itemToSave.name) ? itemToSave.name : 'IPTV Player',
-                streamDescription: type === 'live_stream' ? 'Live TV' : 'VOD',
-                hideProgress: type === 'live_stream', // إخفاء الشريط في البث المباشر
-                controlIcons: {
-                    'exo_rew': 'rewind.png',
-                    'exo_ffwd': 'fastforward.png'
-                }
+            // إعدادات التحكم الكاملة (هنا يظهر زر CC وزر الصوت)
+            controls: {
+                action: 'MODAL', // واجهة تحكم كاملة
+                title: title,
+                subtitle: subTitle,
+                streamImage: logo,
+                
+                // السماح بالتحكم في الصوت والترجمة
+                hideToolbar: false,
+                showAudioAction: true, // إظهار زر تغيير الصوت (للمدبلج)
+                showSubtitleAction: true // إظهار زر الترجمة (للملفات MKV)
             },
             
-            // هام جداً: تفعيل الترجمة
-            useExtensionDecoders: true, // تفعيل الكوديك المتقدم لـ MKV
+            // محاولة إعادة الاتصال لو النت فصل
             connectTimeout: 10000,
             readTimeout: 10000,
             retryCount: 3
         };
 
         // تشغيل الفيديو
-        window.ExoPlayer.show(parameters, function(success){
+        window.ExoPlayer.show(parameters, function(success) {
             console.log("ExoPlayer Event: " + success.eventType);
-            // عند انتهاء الفيديو أو إغلاقه
-            if(success.eventType === 'STOPPED' || success.eventType === 'ENDED') {
-                window.ExoPlayer.close();
+            
+            // ميزة التشغيل التلقائي للحلقة التالية
+            if(success.eventType === 'FINISHED' && type === 'series') {
+                 playNextEpisodeAuto();
             }
-        }, function(error){
+        }, function(error) {
             showError("خطأ في المشغل: " + error);
         });
-        
-        return; 
-    }
 
-    // 2. Fallback للمتصفح (عند التجربة على الكمبيوتر)
-    history.pushState({ view: 'player' }, "", "");
-    navigationStack.push({ view: 'player' });
-    showView('player');
-
-    currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
-    if(itemToSave) document.getElementById('player-overlay-title').textContent = itemToSave.name;
-
-    const vPlayer = document.getElementById('videoPlayer');
-    if(hls) { hls.destroy(); hls = null; }
-    
-    vPlayer.src = url;
-
-    if (Hls.isSupported() && (url.includes('.m3u8') || type === 'live_stream')) {
-        hls = new Hls();
-        hls.loadSource(url);
-        hls.attachMedia(vPlayer);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => vPlayer.play());
     } else {
-        vPlayer.load();
+        // Fallback في حالة التجربة على المتصفح فقط
+        console.log("ExoPlayer plugin not found (Web Mode)");
+        // ... (يمكنك ترك كود HTML5 القديم هنا كبديل للطوارئ) ...
+        const vPlayer = document.getElementById('videoPlayer');
+        vPlayer.src = url;
+        showView('player');
         vPlayer.play();
     }
-    initPlayerAndControls();
 };
 
+// دالة الانتقال للحلقة التالية تلقائياً
+function playNextEpisodeAuto() {
+    const nextIndex = currentStreamInfo.episodeIndex + 1;
+    if(currentStreamInfo.episodeList && nextIndex < currentStreamInfo.episodeList.length) {
+        const nextEp = currentStreamInfo.episodeList[nextIndex];
+        const streamUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextEp.container_extension}`;
+        
+        showError(`جاري تشغيل الحلقة التالية: ${nextEp.title}`); // إشعار سريع
+        
+        setTimeout(() => {
+             currentStreamInfo.episodeIndex = nextIndex;
+             currentStreamInfo.item = { ...nextEp, name: nextEp.title, series_id: currentStreamInfo.item.series_id, cover: currentStreamInfo.item.cover };
+             playStream(streamUrl, 'series', currentStreamInfo.item, currentStreamInfo.episodeList, nextIndex);
+        }, 1500);
+    }
+}
 
 
 
