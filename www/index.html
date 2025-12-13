@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>IPTV Smarters Pro</title>
     <link rel="manifest" href="manifest.json">
+<script src="cordova.js"></script>
     <meta name="theme-color" content="#180c2e">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -570,51 +571,6 @@
     <script>
     document.addEventListener('DOMContentLoaded', () => {
 
-
-        // استدعاء مكتبة App للتحكم في زر الرجوع
-        if (typeof Capacitor !== 'undefined') {
-            const { App } = Capacitor.Plugins;
-            const { CapacitorVideoPlayer } = Capacitor.Plugins;
-
-            App.addListener('backButton', async () => {
-                // 1. هل هناك فيديو يعمل في المشغل الأصلي؟
-                const playerDiv = document.getElementById('fullscreen-player');
-                
-                // نفحص إذا كان المشغل في المقدمة (يعني شغال)
-                if (playerDiv && playerDiv.style.zIndex === "9999") {
-                    // نعم، فيديو شغال -> أوقفه فقط ولا تخرج من التطبيق
-                    await CapacitorVideoPlayer.stopAllPlayers();
-                    playerDiv.style.zIndex = "-1"; // إخفاء الطبقة
-                    return; // توقف هنا ولا تغلق التطبيق
-                }
-
-                // 2. هل المودال (النوافذ المنبثقة) مفتوح؟
-                if (!document.getElementById('search-results-overlay').classList.contains('hidden')) {
-                    toggleSearch();
-                    return;
-                }
-                if (!document.getElementById('accounts-modal').classList.contains('hidden')) {
-                    document.getElementById('accounts-modal').classList.add('hidden');
-                    return;
-                }
-
-                // 3. هل نحن في صفحة داخلية؟ (Content View)
-                if (!document.getElementById('content-view').classList.contains('hidden')) {
-                    window.history.back(); // رجوع برمجي للصفحة السابقة
-                    return;
-                }
-
-                // 4. إذا كنا في الرئيسية، اغلق التطبيق
-                if (!document.getElementById('main-menu-view').classList.contains('hidden')) {
-                    App.exitApp();
-                }
-            });
-        }
-
-
-
-
-
         // --- متغيرات عامة ---
         let currentCredentials = {};
         let apiBaseUrl = '';
@@ -629,7 +585,6 @@
         let appFavorites = [];
         let appHistory = [];
         let appProgress = []; // قائمة لحفظ التقدم
-        let videoEndedListener = null; // متغير لحفظ مستمع انتهاء الفيديو
 
         const MAX_HISTORY = 15;
         const MAX_DASHBOARD_ITEMS = 50; // Increased for better view
@@ -1110,8 +1065,7 @@
             
             if(seasonKeys.length > 0) renderEpisodes(episodes[seasonKeys[0]]);
 
-                                    // دالة رسم الحلقات (معدلة لإصلاح الروابط)
-                        function renderEpisodes(eps) {
+            function renderEpisodes(eps) {
                 epGrid.innerHTML = '';
                 eps.forEach(ep => {
                     const row = document.createElement('div');
@@ -1122,41 +1076,23 @@
                         <i class="fas fa-play-circle text-smarters-purple text-xl"></i>
                     `;
                     row.onclick = () => {
-                        // [تعديل جذري]: تغيير الافتراضي إلى mkv بدلاً من mp4
-                        // لأن المسلسلات ذات الجودة العالية والترجمة تكون غالباً mkv
-                        let ext = ep.container_extension;
-                        if (!ext || ext.trim() === '') ext = 'mkv'; 
-                        
-                        ext = ext.replace('.', '');
-
-                        // تنظيف الهوست
-                        let cleanHost = currentCredentials.host.replace('https://', 'http://');
-                        if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
-
-                        // بناء الرابط
-                        let rawUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${ep.id}.${ext}`;
-                        
-                        // طباعة الرابط في الكونسول للتأكد (اختياري)
-                        console.log("Generating URL:", rawUrl);
-
+                        const streamUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${ep.id}.${ep.container_extension}`;
                         const epData = { 
                             ...ep, 
                             stream_id: ep.id, 
                             series_id: item.series_id, 
                             name: `${info.name} - ${ep.title}`, 
                             cover: coverImg, 
-                            type: 'series',
-                            container_extension: ext 
+                            type: 'series' 
                         };
-                        
-                        // هنا نمرر rawUrl ونترك التشفير لدالة playStream التي عدلناها
-                        playStream(rawUrl, 'series', epData, eps, eps.indexOf(ep));
+                        playStream(streamUrl, 'series', epData, eps, eps.indexOf(ep));
                     };
                     epGrid.appendChild(row);
                 });
             }
+        }
 
-}
+
 
  
 
@@ -1894,258 +1830,94 @@
             backBtn.onclick = (e) => { e.stopPropagation(); window.history.back(); };
         }
 
+        // --- استبدل دالة playStream بالكامل بهذا الكود ---
+// --- دالة تشغيل الفيديو المعدلة (تدعم المشغل الداخلي) ---
+playStream = function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
+    
+    // حفظ في السجل (History)
+    if(itemToSave) {
+        addToHistory(itemToSave);
+    }
+
+    // 1. التحقق هل نحن داخل تطبيق أندرويد؟
+    if (window.cordova && window.plugins && window.plugins.streamingMedia) {
         
-
-        // ==========================================
-        // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
-        // ==========================================
-                           playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
-            
-            // 1. حفظ البيانات والسجل
-            currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
-            if(itemToSave) addToHistory(itemToSave);
-
-            const isNative = (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform());
-
-            if (isNative) {
-                try {
-                    const { CapacitorVideoPlayer } = Capacitor.Plugins;
-                    
-                    // تنظيف أي فيديو سابق
-                    if (videoEndedListener) {
-                        await videoEndedListener.remove();
-                        videoEndedListener = null;
-                    }
-                    try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
-
-                    // رفع طبقة المشغل للمقدمة
-                    const playerDiv = document.getElementById('fullscreen-player');
-                    if(playerDiv) playerDiv.style.zIndex = "9999";
-
-                    // --- [مرحلة التجهيز القصوى للرابط] ---
-                    
-                    // 1. تنظيف الرابط من المسافات
-                    let cleanUrl = url.trim();
-                    
-                    // 2. إجبار http (لأن https يسبب مشاكل مع سيرفرات IPTV القديمة)
-                    if (cleanUrl.startsWith('https://')) {
-                        cleanUrl = cleanUrl.replace('https://', 'http://');
-                    }
-
-                    // 3. تشفير الرابط (يحل مشكلة الرموز الخاصة في اسم الملف)
-                    const finalUrl = encodeURI(cleanUrl);
-                    
-                    console.log("Native Playing:", finalUrl);
-
-                    setTimeout(async () => {
-                        await CapacitorVideoPlayer.initPlayer({
-                            mode: 'fullscreen',
-                            url: finalUrl, 
-                            playerId: 'fullscreen-player',
-                            componentTag: 'div',
-                            
-                            // [السر]: إرسال هوية Smarters ليقبل السيرفر الاتصال
-                            headers: {
-                                'User-Agent': 'IPTVSmartersPro',
-                            },
-
-                            pipEnabled: false,
-                            bkmodeEnabled: false,
-                            
-                            title: itemToSave ? itemToSave.name : '',
-                            subtitle: '', // نترك المشغل يكتشف الترجمة المدمجة (MKV)
-                            
-                            language: 'ar', 
-                            chromecast: false,
-                            controls: true 
-                        });
-                    }, 100);
-
-                    // مستمع الانتقال للحلقة التالية
-                    videoEndedListener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
-                         if(type === 'series' && episodeIndex < episodeList.length - 1) {
-                             const nextIndex = episodeIndex + 1;
-                             const nextEp = episodeList[nextIndex];
-                             
-                             // التأكد من الامتداد للحلقة التالية
-                             let nextExt = nextEp.container_extension;
-                             if (!nextExt || nextExt.trim() === '' || nextExt === 'undefined') nextExt = 'mkv';
-                             nextExt = nextExt.replace('.', '');
-
-                             // تنظيف الهوست للحلقة التالية
-                             let cleanHost = currentCredentials.host.replace('https://', 'http://');
-                             if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
-
-                             let nextRawUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextExt}`;
-                             
-                             if(videoEndedListener) {
-                                 await videoEndedListener.remove();
-                                 videoEndedListener = null;
-                             }
-                             // نمرر الرابط الخام playStream ستقوم بتشفيره
-                             playStream(nextRawUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
-                         } else {
-                             await CapacitorVideoPlayer.stopAllPlayers();
-                             if(playerDiv) playerDiv.style.zIndex = "-1";
-                             if(videoEndedListener) {
-                                 await videoEndedListener.remove();
-                                 videoEndedListener = null;
-                             }
-                         }
-                    });
-
-                } catch (e) {
-                    console.error("Native Error:", e);
-                    // في حالة الفشل التام، نحاول الويب (رغم أنه قد لا يعمل مع هذا الفيديو تحديداً)
-                    playWebStream(url, type, itemToSave, episodeList, episodeIndex);
-                }
-            } else {
-                playWebStream(url, type, itemToSave, episodeList, episodeIndex);
-            }
+        // إعدادات المشغل الداخلي
+        var options = {
+            successCallback: function() { console.log("Video was closed without error."); },
+            errorCallback: function(errMsg) { showError("خطأ في التشغيل: " + errMsg); },
+            orientation: 'landscape', // قفل الشاشة بالعرض
+            shouldAutoClose: true,  // إغلاق المشغل عند انتهاء الفيديو
+            controls: true // إظهار أزرار التحكم
         };
 
+        // تشغيل الفيديو بالمشغل الأصلي (يدعم MKV وجميع الصيغ)
+        window.plugins.streamingMedia.playVideo(url, options);
+        
+        // ملاحظة: هذا المشغل سيظهر فوق تطبيقك ويغطيه بالكامل أثناء المشاهدة
+        return; 
+    }
+
+    // 2. إذا لم نكن في التطبيق (متصفح عادي)، نستخدم المشغل القديم
+    
+    // ... (باقي كود المشغل القديم الخاص بك كما هو للنسخة الويب) ...
+    // فقط ضع كود HTML Player القديم هنا كـ Else
+    
+    // سأكتب لك الجزء المختصر هنا لضمان عمل الكود:
+    history.pushState({ view: 'player' }, "", "");
+    navigationStack.push({ view: 'player' });
+    showView('player');
+
+    currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
+    if(itemToSave) document.getElementById('player-overlay-title').textContent = itemToSave.name;
+
+    const vPlayer = document.getElementById('videoPlayer');
+    if(hls) { hls.destroy(); hls = null; }
+    
+    vPlayer.src = url;
+
+    if (Hls.isSupported() && (url.includes('.m3u8') || type === 'live_stream')) {
+        hls = new Hls();
+        hls.loadSource(url);
+        hls.attachMedia(vPlayer);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => vPlayer.play());
+    } else {
+        vPlayer.load();
+        vPlayer.play();
+    }
+    initPlayerAndControls();
+};
 
 
 
-
-
-        // ==========================================
-        // 2. دالة مشغل الويب (المفقودة سابقاً)
-        // ==========================================
-        function playWebStream(url, type, itemToSave, episodeList, episodeIndex) {
-            // إعداد الواجهة
-            history.pushState({ view: 'player' }, "", "");
-            navigationStack.push({ view: 'player' });
-            showView('player');
-            
-            const spinner = document.getElementById('player-loading-spinner');
-            if(spinner) spinner.style.display = 'block';
-
-            // إعداد الأزرار
-            const nextBtn = document.getElementById('player-next-btn');
-            const prevBtn = document.getElementById('player-prev-btn');
-            const downloadBtn = document.getElementById('player-download-btn');
-            const externalBtn = document.getElementById('player-external-btn');
-
-            if(type === 'series' && episodeList.length > 0) {
-                nextBtn.classList.remove('hidden');
-                nextBtn.disabled = (episodeIndex >= episodeList.length - 1);
-                nextBtn.style.opacity = nextBtn.disabled ? '0.5' : '1';
-                
-                prevBtn.classList.remove('hidden'); // إظهار زر السابق أيضاً
-            } else {
-                nextBtn.classList.add('hidden');
-                prevBtn.classList.add('hidden');
-            }
-
-            // إظهار زر التحميل للملفات
-            if (type === 'vod' || type === 'series') {
-                downloadBtn.classList.remove('hidden');
-                downloadBtn.href = url;
-            } else {
-                downloadBtn.classList.add('hidden');
-            }
-            
-            // إظهار زر خارجي
-            if(externalBtn) externalBtn.classList.remove('hidden');
-
-            // تجهيز الفيديو
+        // باقي دوال النظام الضرورية
+        function stopStream() {
             const vPlayer = document.getElementById('videoPlayer');
-            if(hls) { hls.destroy(); hls = null; }
-
-            vPlayer.src = url;
-
-            // التحقق من الاستكمال (Resume)
-            let startTime = 0;
-            if (itemToSave) startTime = getSavedTime(itemToSave);
-
-            // دالة القفز للوقت المحفوظ
-            const handleResume = () => {
-                if (startTime > 5) {
-                    vPlayer.currentTime = startTime;
-                    console.log("Resumed to:", startTime);
-                }
-                if(spinner) spinner.style.display = 'none';
-            };
-
-            // تشغيل HLS أو MP4
-            if (Hls.isSupported() && (url.includes('.m3u8') || type === 'live_stream')) {
-                hls = new Hls();
-                hls.loadSource(url);
-                hls.attachMedia(vPlayer);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    vPlayer.play().then(handleResume).catch(e => console.warn(e));
-                });
-            } else {
-                vPlayer.load();
-                vPlayer.play().then(handleResume).catch(e => {
-                    console.warn(e);
-                    if(spinner) spinner.style.display = 'none';
-                });
-            }
-
-            // إخفاء شريط التقدم للبث المباشر
-            const progContainer = document.getElementById('player-progress-container').parentElement;
-            if(type === 'live_stream') progContainer.classList.add('invisible');
-            else progContainer.classList.remove('invisible');
-
-            // تشغيل التحكمات (السحب، الصوت، إلخ)
-            initPlayerAndControls();
-        }
-
-        // ==========================================
-        // 3. دالة إيقاف المشغل (تنظيف)
-        // ==========================================
-                        async function stopStream() { // حولناها لـ async
-            const vPlayer = document.getElementById('videoPlayer');
-            if(vPlayer) {
-                vPlayer.pause();
-                vPlayer.src = "";
-                vPlayer.load();
-            }
-            if(hls) { hls.destroy(); hls = null; }
-            
+            vPlayer.pause();
+            vPlayer.src = "";
             document.getElementById('player-view').classList.add('hidden');
-            
-            const nativeDiv = document.getElementById('fullscreen-player');
-            if(nativeDiv) nativeDiv.style.zIndex = "-1";
-            
-            // تنظيف المستمع عند الإيقاف اليدوي
-            if (videoEndedListener) {
-                await videoEndedListener.remove();
-                videoEndedListener = null;
-            }
-
             if (document.fullscreenElement) document.exitFullscreen().catch(err => {});
+            if (document.pictureInPictureElement) document.exitPictureInPicture().catch(err => {});
             if(screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
         }
-
-
-
-              // ==========================================
-        // 4. نظام الرجوع الذكي (المصحح)
+        
+        // Back Handler
+                // ==========================================
+        // 4. نظام الرجوع الذكي (يجمع بين المشغل والتطبيق)
         // ==========================================
         window.onpopstate = async function(event) {
-            // 1. أولاً: إيقاف المشغل الأصلي (Capacitor) إذا كان يعمل
-            // وضعناه هنا داخل الدالة async ليعمل الـ await بشكل صحيح
-            if (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) {
-                try {
-                    await Capacitor.Plugins.CapacitorVideoPlayer.stopAllPlayers();
-                } catch(e) {}
-            }
-
             const playerView = document.getElementById('player-view');
             
-            // 2. إذا كان مشغل الويب مفتوحاً -> أغلقه
+            // أ: إذا كان المشغل مفتوحاً -> أغلقه فقط
             if (!playerView.classList.contains('hidden')) {
-                stopStream(); 
+                stopStream(); // هذه الدالة موجودة في كود المشغل الجديد
                 
-                // تنظيف سجل التنقل
+                // إزالة صفحة المشغل من سجل التنقل
                 if (navigationStack.length > 0 && navigationStack[navigationStack.length - 1].view === 'player') {
                     navigationStack.pop();
                 }
 
-                // العودة للشاشة السابقة
+                // العودة لما قبل المشغل
                 if (navigationStack.length > 0) {
                      const current = navigationStack[navigationStack.length - 1];
                      if(current.isSeriesInfo) {
@@ -2156,45 +1928,45 @@
                          content.seriesContainer.classList.add('hidden');
                          showView(current.view);
                      }
-                     if(current.title && content.title) content.title.textContent = current.title;
+                     if(current.title) content.title.textContent = current.title;
                 } else {
                     showView('mainMenu');
                 }
                 return; 
             }
 
-            // 3. التنقل العادي بين القوائم
+            // ب: الرجوع العادي في القوائم
             if (navigationStack.length > 1) {
                 navigationStack.pop();
                 const prevState = navigationStack[navigationStack.length - 1];
                 
                 showView(prevState.view);
-                if(prevState.title && content.title) content.title.textContent = prevState.title;
+                if(prevState.title) content.title.textContent = prevState.title;
 
                 if(prevState.isSeriesInfo) {
                      content.grid.innerHTML = '';
                      content.seriesContainer.classList.remove('hidden');
+                     return;
                 } else {
                      content.seriesContainer.classList.add('hidden');
-                     
-                     // إعادة تحميل البيانات للقوائم
-                     if (prevState.view === 'content' && prevState.action) {
-                         const data = await apiFetch(prevState.action, prevState.params || '', false);
-                         if(data) populateGrid(data, prevState.itemType || 'vod_stream');
-                     } 
-                     // إعادة تحميل القوائم المحلية
-                     else if (prevState.isLocal) {
-                         if(prevState.title === 'المفضلة') openLocalList('المفضلة', appFavorites);
-                         else if(prevState.title === 'سجل المشاهدة') openLocalList('سجل المشاهدة', appHistory);
-                         else if(prevState.title === 'استكمال المشاهدة') openLocalList('استكمال المشاهدة', appProgress);
-                     }
                 }
+                
+                // إذا كنا نرجع لقائمة، أعد تحميل بياناتها
+                if (prevState.view === 'content' && prevState.action) {
+                     // ... كود إعادة جلب البيانات الموجود في ملفك القديم ...
+                     const data = await apiFetch(prevState.action, prevState.params || '', false);
+                     if(data) populateGrid(data, prevState.itemType || 'vod_stream');
+                } else if (prevState.isLocal) {
+                    // إذا كنا نرجع للمفضلة أو السجل
+                    if(prevState.title === 'المفضلة') openLocalList('المفضلة', appFavorites);
+                    else if(prevState.title === 'سجل المشاهدة') openLocalList('سجل المشاهدة', appHistory);
+                }
+
             } else {
                 showView('mainMenu');
                 navigationStack = [{ view: 'mainMenu' }];
             }
         };
-
 
 
         // --- تحسين الساعة والتاريخ ---
@@ -2598,7 +2370,7 @@ function removeProgress(item) {
 
 
 
-    }); // End DOMContentLoaded
+
    
 
 
@@ -2606,7 +2378,7 @@ function removeProgress(item) {
 
 
 
-
+    }); // End DOMContentLoaded
     </script>
 
 
@@ -2683,15 +2455,8 @@ function removeProgress(item) {
 
 
 
-
     });
 </script>
-
-<div id="fullscreen-player" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; background: transparent;"></div>
-
-
-
-
 </body>
 </html>
 
