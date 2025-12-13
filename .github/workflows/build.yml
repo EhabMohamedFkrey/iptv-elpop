@@ -42,13 +42,16 @@ jobs:
       - name: Add Android Platform
         run: cordova platform add android
 
-      # --- هذه الخطوة الجديدة (الحل الرسمي) ---
-      # ننشئ ملفاً يسمى build-extras.gradle يضيف مخزن jcenter بالقوة
-      - name: Create Build Extras (Force JCenter)
+      # --- الحل النهائي: إجبار النظام على استخدام نسخة متوفرة ---
+      - name: Create Build Extras (Force Newer ExoPlayer)
         run: |
-          echo 'allprojects { repositories { google(); jcenter(); maven { url "https://maven.google.com" } } }' > platforms/android/build-extras.gradle
-          echo 'allprojects { repositories { google(); jcenter(); maven { url "https://maven.google.com" } } }' > platforms/android/app/build-extras.gradle
-      # ----------------------------------------
+          # نكتب كود Groovy لإجبار النظام على ترقية المكتبة المفقودة
+          echo 'configurations.all { resolutionStrategy { force "com.google.android.exoplayer:exoplayer:2.9.6" } }' > platforms/android/build-extras.gradle
+          echo 'configurations.all { resolutionStrategy { force "com.google.android.exoplayer:exoplayer:2.9.6" } }' > platforms/android/app/build-extras.gradle
+          
+          # نضيف المخازن أيضاً للاحتياط
+          sed -i 's/repositories {/repositories { google(); jcenter(); maven { url "https:\/\/maven.google.com" }/' platforms/android/build.gradle
+      # --------------------------------------------------------
         
       - name: Build APK
         run: cordova build android --debug
