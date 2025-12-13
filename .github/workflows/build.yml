@@ -43,33 +43,33 @@ jobs:
           rm -f package-lock.json
           npm install
 
-      # ========================================================
-      # الخطوة الحاسمة: تعديل الإضافة في المصدر قبل إضافة الأندرويد
-      # ========================================================
-      - name: Patch ExoPlayer Plugin Source
+      # 2. إصلاح كود الإضافة (فقط تحديث الأمر، لا نغير الإصدار)
+      - name: Fix ExoPlayer Plugin Syntax
         run: |
-          echo "Starting Surgery on ExoPlayer Plugin..."
-          
-          # 1. تعديل ملف plugin.xml (المصدر الرئيسي للمشكلة)
-          # هذا الملف هو الذي يخبر كوردوفا أي نسخة يحملها، وتعديله ضروري جداً
-          find node_modules/cordova-plugin-exoplayer -name "plugin.xml" -exec sed -i 's/2.6.1/2.9.6/g' {} +
-          
-          # 2. تعديل ملف build.gradle الخاص بالإضافة
-          # تغيير الإصدار وتحديث الأمر compile القديم
-          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/2.6.1/2.9.6/g' {} +
-          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/compile /implementation /g' {} +
-          
-          echo "Plugin Source Patched Successfully!"
+          echo "Fixing compile vs implementation..."
+          # نستبدل compile بـ implementation لأن Gradle 8 لا يدعم compile
+          find node_modules/cordova-plugin-exoplayer -name "*.gradle" -exec sed -i 's/compile /implementation /g' {} +
+          echo "Plugin Syntax Fixed!"
 
-      # 2. إضافة منصة الأندرويد (الآن ستأخذ النسخة المعدلة الصحيحة)
+      # 3. إضافة منصة الأندرويد
       - name: Add Android Platform
         run: cordova platform add android
 
-      # 3. التأكد من المستودعات (إجراء احترازي إضافي)
-      - name: Ensure Google Repositories
+      # ========================================================
+      # الخطوة السحرية: حقن JCenter في المكان الصحيح (settings.gradle)
+      # ========================================================
+      - name: Inject JCenter into Settings.gradle
         run: |
-          sed -i 's/mavenCentral()/mavenCentral()\n        google()/g' platforms/android/build.gradle
+          echo "Injecting JCenter into settings.gradle (Cordova 12 Requirement)..."
           
+          # الملف settings.gradle هو المتحكم الجديد في المستودعات
+          # نبحث عن mavenCentral() ونضيف بعدها jcenter()
+          sed -i 's/mavenCentral()/mavenCentral()\n        jcenter()/g' platforms/android/settings.gradle
+          sed -i 's/google()/google()\n        maven { url "https:\/\/maven.google.com" }/g' platforms/android/settings.gradle
+          
+          echo "Settings.gradle patched successfully!"
+          cat platforms/android/settings.gradle # طباعة الملف للتأكد في السجلات
+
       - name: Build APK
         run: cordova build android --debug
 
