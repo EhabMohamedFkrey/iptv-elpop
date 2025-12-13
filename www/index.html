@@ -1111,7 +1111,7 @@
             if(seasonKeys.length > 0) renderEpisodes(episodes[seasonKeys[0]]);
 
                                     // دالة رسم الحلقات (معدلة لإصلاح الروابط)
-            function renderEpisodes(eps) {
+                        function renderEpisodes(eps) {
                 epGrid.innerHTML = '';
                 eps.forEach(ep => {
                     const row = document.createElement('div');
@@ -1122,23 +1122,23 @@
                         <i class="fas fa-play-circle text-smarters-purple text-xl"></i>
                     `;
                     row.onclick = () => {
-                        // 1. التعامل الذكي مع الامتداد (MKV/MP4)
+                        // [تعديل جذري]: تغيير الافتراضي إلى mkv بدلاً من mp4
+                        // لأن المسلسلات ذات الجودة العالية والترجمة تكون غالباً mkv
                         let ext = ep.container_extension;
-                        if (!ext || ext.trim() === '') ext = 'mp4'; // افتراضي
-                        // تنظيف الامتداد من أي نقاط إضافية
+                        if (!ext || ext.trim() === '') ext = 'mkv'; 
+                        
                         ext = ext.replace('.', '');
 
-                        // 2. تجهيز الهوست (تحويل HTTPS إلى HTTP لتجنب مشاكل الشهادات في التطبيق)
+                        // تنظيف الهوست
                         let cleanHost = currentCredentials.host.replace('https://', 'http://');
                         if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
 
-                        // 3. بناء الرابط الخام
+                        // بناء الرابط
                         let rawUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${ep.id}.${ext}`;
                         
-                        // 4. [هام جداً] تشفير الرابط ليقبله مشغل الأندرويد
-                        // هذا يحل مشكلة Video URL not found إذا كان الاسم يحتوي مسافات
-                        const streamUrl = encodeURI(rawUrl);
-                        
+                        // طباعة الرابط في الكونسول للتأكد (اختياري)
+                        console.log("Generating URL:", rawUrl);
+
                         const epData = { 
                             ...ep, 
                             stream_id: ep.id, 
@@ -1148,13 +1148,15 @@
                             type: 'series',
                             container_extension: ext 
                         };
-                        playStream(streamUrl, 'series', epData, eps, eps.indexOf(ep));
+                        
+                        // هنا نمرر rawUrl ونترك التشفير لدالة playStream التي عدلناها
+                        playStream(rawUrl, 'series', epData, eps, eps.indexOf(ep));
                     };
                     epGrid.appendChild(row);
                 });
             }
-}
 
+}
 
  
 
@@ -1897,7 +1899,7 @@
         // ==========================================
         // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
         // ==========================================
-                                                                playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
+                   playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
             
             // 1. حفظ البيانات
             currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
@@ -1909,64 +1911,63 @@
                 try {
                     const { CapacitorVideoPlayer } = Capacitor.Plugins;
                     
-                    // تنظيف المستمع السابق
+                    // تنظيف السابق
                     if (videoEndedListener) {
                         await videoEndedListener.remove();
                         videoEndedListener = null;
                     }
-
                     try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
 
-                    // رفع طبقة المشغل
+                    // رفع الطبقة
                     const playerDiv = document.getElementById('fullscreen-player');
                     if(playerDiv) playerDiv.style.zIndex = "9999";
 
-                    // التأكد من تشفير الرابط (خطوة أمان إضافية)
+                    // تشفير الرابط
                     const finalUrl = encodeURI(url);
-                    console.log("Playing Native URL:", finalUrl);
 
                     setTimeout(async () => {
                         await CapacitorVideoPlayer.initPlayer({
                             mode: 'fullscreen',
-                            url: finalUrl, // استخدام الرابط المشفر
+                            url: finalUrl,
                             playerId: 'fullscreen-player',
                             componentTag: 'div',
                             
+                            // [تعديل هام 1]: إضافة الهوية للسيرفر
+                            headers: {
+                                'User-Agent': 'IPTVSmartersPro',
+                            },
+
                             pipEnabled: false,
                             bkmodeEnabled: false,
-                            
                             title: itemToSave ? itemToSave.name : '',
-                            // تركنا الترجمة فارغة ليقوم المشغل باكتشاف الترجمة المدمجة داخل الفيديو
                             subtitle: '', 
-                            
                             language: 'ar', 
                             chromecast: false,
-                            controls: true // هذا يظهر شريط التحكم والتشغيل
+                            controls: true 
                         });
                     }, 100);
 
-                    // مستمع الانتقال للحلقة التالية
+                    // مستمع التالي
                     videoEndedListener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
                          if(type === 'series' && episodeIndex < episodeList.length - 1) {
                              const nextIndex = episodeIndex + 1;
                              const nextEp = episodeList[nextIndex];
                              
+                             // [تعديل هام 2]: جعل الامتداد الافتراضي mkv للمسلسلات
                              let nextExt = nextEp.container_extension;
-                             if (!nextExt || nextExt.trim() === '') nextExt = 'mp4';
+                             if (!nextExt || nextExt.trim() === '') nextExt = 'mkv'; // غيرنا من mp4 لـ mkv
                              nextExt = nextExt.replace('.', '');
 
                              let cleanHost = currentCredentials.host.replace('https://', 'http://');
                              if (!cleanHost.startsWith('http')) cleanHost = 'http://' + cleanHost;
 
                              let nextRawUrl = `${cleanHost}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextExt}`;
-                             const nextUrl = encodeURI(nextRawUrl); // تشفير الرابط التالي أيضاً
                              
                              if(videoEndedListener) {
                                  await videoEndedListener.remove();
                                  videoEndedListener = null;
                              }
-                             
-                             playStream(nextUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
+                             playStream(nextRawUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
                          } else {
                              await CapacitorVideoPlayer.stopAllPlayers();
                              if(playerDiv) playerDiv.style.zIndex = "-1";
@@ -1979,7 +1980,6 @@
 
                 } catch (e) {
                     console.error("Native Error:", e);
-                    // في حال الفشل التام، نعود لمشغل الويب
                     playWebStream(url, type, itemToSave, episodeList, episodeIndex);
                 }
             } else {
