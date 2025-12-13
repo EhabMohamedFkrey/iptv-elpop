@@ -1834,9 +1834,9 @@
         // ==========================================
         // 1. دالة التشغيل الرئيسية (تختار بين التطبيق والمتصفح)
         // ==========================================
-                                playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
+                                        playStream = async function(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
             
-            // حفظ البيانات
+            // حفظ البيانات والسجل
             currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
             if(itemToSave) {
                 if(document.getElementById('player-overlay-title')) {
@@ -1848,54 +1848,39 @@
             const isNative = (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform());
 
             if (isNative) {
-                try {
-                    const { CapacitorVideoPlayer } = Capacitor.Plugins;
-
-                    // إيقاف السابق
-                    try { await CapacitorVideoPlayer.stopAllPlayers(); } catch(e) {}
-
-                    // [تعديل هام 1]: رفع طبقة المشغل للمقدمة ليظهر الفيديو
-                    const playerDiv = document.getElementById('fullscreen-player');
-                    if(playerDiv) playerDiv.style.zIndex = "9999";
-
-                    setTimeout(async () => {
-                        try {
-                            await CapacitorVideoPlayer.initPlayer({
-                                mode: 'fullscreen',
-                                url: url,
-                                playerId: 'fullscreen-player',
-                                componentTag: 'div',
-                                pipEnabled: false,
-                                bkmodeEnabled: false,
-                                title: itemToSave ? itemToSave.name : 'IPTV Player',
-                                subtitle: itemToSave && itemToSave.type === 'series' ? `Episode ${episodeIndex + 1}` : '',
-                            });
-                        } catch (innerError) {
-                            console.error("Native Init Error:", innerError);
+                // === استخدام المشغل المستقر (Streaming Media) ===
+                // هذا المشغل يفتح نافذة فيديو أصلية فوق التطبيق
+                if (window.plugins && window.plugins.streamingMedia) {
+                    
+                    var options = {
+                        successCallback: function() {
+                            // عند إغلاق الفيديو (بالرجوع أو الانتهاء)
+                            console.log("Video closed");
+                            // إذا كان مسلسلاً، نحاول تشغيل الحلقة التالية
+                            if(type === 'series' && episodeIndex < episodeList.length - 1) {
+                                // ملاحظة: هذا المشغل لا يرسل حدث "انتهاء" دقيق، بل حدث "إغلاق"
+                                // لذا قد يحتاج المستخدم لتشغيل الحلقة التالية يدوياً، أو يمكنك تفعيل التالي تلقائياً
+                            }
+                        },
+                        errorCallback: function(e) {
+                            console.log("Error playing video");
                             playWebStream(url, type, itemToSave, episodeList, episodeIndex);
-                        }
-                    }, 100); 
+                        },
+                        orientation: 'landscape', // إجبار الوضع الأفقي
+                        shouldAutoClose: true,  // إغلاق عند الانتهاء
+                        controls: true // إظهار أزرار التحكم
+                    };
 
-                    const listener = await CapacitorVideoPlayer.addListener('jeepCapVideoPlayerEnded', async (data) => {
-                         if(type === 'series' && episodeIndex < episodeList.length - 1) {
-                             const nextIndex = episodeIndex + 1;
-                             const nextEp = episodeList[nextIndex];
-                             const nextUrl = `${currentCredentials.host}/series/${currentCredentials.user}/${currentCredentials.pass}/${nextEp.id}.${nextEp.container_extension}`;
-                             await listener.remove();
-                             playStream(nextUrl, 'series', {...nextEp, name: nextEp.title, series_id: itemToSave.series_id}, episodeList, nextIndex);
-                         } else {
-                             await CapacitorVideoPlayer.stopAllPlayers();
-                             // [تعديل هام 2]: إعادة المشغل للخلفية عند الانتهاء
-                             if(playerDiv) playerDiv.style.zIndex = "-1";
-                         }
-                    });
+                    // تشغيل الفيديو
+                    window.plugins.streamingMedia.playVideo(url, options);
 
-                } catch (e) {
-                    console.error("Native Setup Error:", e);
+                } else {
+                    // في حالة عدم تحميل الإضافة، نستخدم الويب
                     playWebStream(url, type, itemToSave, episodeList, episodeIndex);
                 }
 
             } else {
+                // === للمتصفح ===
                 playWebStream(url, type, itemToSave, episodeList, episodeIndex);
             }
         };
@@ -1990,7 +1975,7 @@
         // ==========================================
         // 3. دالة إيقاف المشغل (تنظيف)
         // ==========================================
-        function stopStream() {
+                function stopStream() {
             const vPlayer = document.getElementById('videoPlayer');
             if(vPlayer) {
                 vPlayer.pause();
@@ -2001,10 +1986,14 @@
             
             document.getElementById('player-view').classList.add('hidden');
             
-            // الخروج من ملء الشاشة
+            // [تعديل هام]: إعادة طبقة المشغل الأصلي للخلفية
+            const nativeDiv = document.getElementById('fullscreen-player');
+            if(nativeDiv) nativeDiv.style.zIndex = "-1";
+
             if (document.fullscreenElement) document.exitFullscreen().catch(err => {});
             if(screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
         }
+
 
               // ==========================================
         // 4. نظام الرجوع الذكي (المصحح)
@@ -2571,7 +2560,6 @@ function removeProgress(item) {
     });
 </script>
 
-<div id="fullscreen-player" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; background: transparent;"></div>
 
 
 
