@@ -1069,98 +1069,88 @@
                                                         // --- متغير لمشغل Video.js ---
         let player = null;
 
-            // --- دالة تشغيل الفيديو (محسنة) ---
+                   // --- مشغل الفيديو الذكي (Hybrid Player) ---
         function playStream(url, type, itemToSave = null, episodeList = [], episodeIndex = -1) {
             
-            // حفظ في السجل
+            // 1. حفظ في السجل
             if(itemToSave) addToHistory(itemToSave);
+            
+            // حفظ البيانات الحالية
+            currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
 
-            // إظهار واجهة المشغل
+            // 2. فحص نوع الملف: هل هو MKV أو فيلم يحتاج قدرات خاصة؟
+            // معظم أفلام الـ IPTV تكون MKV وتحتاج مشغل قوي
+            const isMKV = url.toLowerCase().includes('.mkv') || type === 'movie' || type === 'series';
+            
+            if (isMKV) {
+                // --- المسار أ: تشغيل المشغل النيتيف (للأفلام والترجمة) ---
+                playNative(url);
+            } else {
+                // --- المسار ب: تشغيل Video.js (للبث المباشر والقنوات) ---
+                playWithVideoJS(url, type);
+            }
+        }
+
+        // دالة تشغيل Video.js (للبث المباشر)
+        function playWithVideoJS(url, type) {
             history.pushState({ view: 'player' }, "", "");
             navigationStack.push({ view: 'player' });
             showView('player');
 
-            // حفظ بيانات الحلقة الحالية
-            currentStreamInfo = { url, type, item: itemToSave, episodeList, episodeIndex };
-
-            // تهيئة المشغل إذا لم يكن موجوداً
             if (!player) {
-                // التأكد من أن videojs معرفة (تم حلها بإضافة السكربت في الـ head)
-                if (typeof videojs === 'undefined') {
-                    showError("مكتبة المشغل لم يتم تحميلها بشكل صحيح");
-                    return;
-                }
-
+                if (typeof videojs === 'undefined') { showError("خطأ في تحميل المشغل"); return; }
                 player = videojs('my-video', {
-                    controls: true,
-                    autoplay: true,
-                    preload: 'auto',
-                    fluid: false,
-                    html5: {
-                        vhs: { overrideNative: true },
-                        nativeAudioTracks: false,
-                        nativeVideoTracks: false
-                    }
+                    controls: true, autoplay: true, preload: 'auto', fluid: false,
+                    html5: { vhs: { overrideNative: true } }
                 });
             }
 
-            // تحديد نوع الملف بدقة لتفادي أخطاء not supported
-            let mimeType = 'video/mp4'; // الافتراضي
-            if (type === 'live_stream' || url.includes('.m3u8')) {
-                mimeType = 'application/x-mpegURL';
-            }
-            // ملاحظة: MKV يعامل كـ MP4 في Video.js ليحاول المتصفح تشغيله
-
-            player.src({
-                src: url,
-                type: mimeType
-            });
-
-            player.ready(function() {
-                const oldTracks = player.remoteTextTracks();
-                let i = oldTracks.length;
-                while (i--) {
-                    player.removeRemoteTextTrack(oldTracks[i]);
-                }
-                
-                // محاولة التشغيل مع كتم الصوت إذا لزم الأمر (لسياسات المتصفح)
-                var promise = this.play();
-                if (promise !== undefined) {
-                    promise.catch(error => {
-                        console.log("Autoplay blocked, user interaction required.", error);
-                        // لا نظهر خطأ للمستخدم هنا، لأنه مجرد منع التشغيل التلقائي
-                    });
-                }
-            });
-
-            player.off('error'); // إزالة مستمعي الأخطاء السابقين لمنع التكرار
+            player.src({ src: url, type: (url.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4') });
+            player.off('error');
             player.on('error', function() {
-                const error = player.error();
-                console.log('Video Error Code:', error.code, 'Message:', error.message);
-                
-                // إذا كان الخطأ 4 (Format Not Supported) والملف MKV
-                if (error.code === 4 && url.includes('.mkv')) {
-                    showError("صيغة الفيديو (MKV) قد لا تكون مدعومة على هذا الجهاز.");
-                } else {
-                    // رسالة خطأ عامة
-                    // showError("خطأ في تشغيل الفيديو: " + (error.message || "تأكد من الاتصال"));
-                }
+                // إذا فشل Video.js، نحاول تلقائياً بالمشغل النيتيف كخطة بديلة
+                console.log("Video.js failed, switching to Native...");
+                closeVideoPlayer();
+                playNative(url);
             });
         }
 
-
-                // --- دالة إغلاق المشغل (تم جعلها Global لتعمل مع زر HTML) ---
-        window.closeVideoPlayer = function() {
-            if (player) {
-                player.pause();
-                player.currentTime(0); // إعادة للبداية
+        // دالة تشغيل المشغل النيتيف (StreamingMedia)
+        function playNative(url) {
+            if (typeof StreamingMedia === 'undefined') {
+                showError("جاري تحميل المشغل الداخلي...");
+                // في حالة عدم جاهزية البلاجن، نستخدم Video.js مؤقتاً
+                playWithVideoJS(url, 'video/mp4');
+                return;
             }
-            // الرجوع للخلف
-            if (navigationStack.length > 0) navigationStack.pop();
-            const lastView = navigationStack[navigationStack.length-1];
-            if(lastView) showView(lastView.view);
-            else showView('mainMenu');
+
+            const options = {
+                successCallback: function() { console.log("Video was closed without error."); },
+                errorCallback: function(errMsg) { showError("تعذر تشغيل الفيديو بالمشغل الداخلي"); },
+                orientation: 'landscape',
+                shouldAutoClose: true,
+                controls: true // يظهر أزرار التحكم والترجمة الافتراضية للجهاز
+            };
+
+            // تشغيل الفيديو في واجهة كاملة (يظهر وكأنه داخل التطبيق)
+            StreamingMedia.playVideo(url, options);
         }
+
+        // تعديل زر الإغلاق ليدعم النظامين
+        window.closeVideoPlayer = function() {
+            // إغلاق Video.js
+            if (player) { player.pause(); player.currentTime(0); }
+            
+            // الرجوع للخلف في الواجهة
+            const playerView = document.getElementById('player-view');
+            if (!playerView.classList.contains('hidden')) {
+                if (navigationStack.length > 0) navigationStack.pop();
+                const lastView = navigationStack[navigationStack.length-1];
+                if(lastView) showView(lastView.view);
+                else showView('mainMenu');
+            }
+        }
+
 
 
         // تعديل زر الرجوع في النظام ليعمل مع Video.js
