@@ -16,9 +16,14 @@
         <preference name="android-minSdkVersion" value="22" />
         <preference name="android-targetSdkVersion" value="33" />
         
-        <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest/application">
-            <application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" tools:replace="android:usesCleartextTraffic,android:hardwareAccelerated" />
+                <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest/application">
+            <application 
+                android:usesCleartextTraffic="true" 
+                android:hardwareAccelerated="true" 
+                android:requestLegacyExternalStorage="true"
+                tools:replace="android:usesCleartextTraffic,android:hardwareAccelerated,android:requestLegacyExternalStorage" />
         </edit-config>
+
         
         <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest">
             <manifest xmlns:tools="http://schemas.android.com/tools" />
