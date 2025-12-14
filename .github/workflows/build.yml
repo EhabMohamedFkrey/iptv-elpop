@@ -36,61 +36,44 @@ jobs:
       - name: Install Cordova
         run: npm install -g cordova
         
-      # 1. تنظيف شامل
+      # 1. تنظيف وتثبيت المكتبات (نود موديولز فقط)
       - name: Clean Install Dependencies
         run: |
           rm -rf node_modules
           rm -f package-lock.json
           npm install
 
-      # 2. إصلاح كود الإضافة (syntax فقط)
-      - name: Fix ExoPlayer Plugin Syntax
+      # ========================================================
+      # عملية القلب المفتوح: تعديل الإضافة في المصدر (Node Modules)
+      # قبل أن يلمسها كوردوفا ويحولها لأندرويد
+      # ========================================================
+      - name: Patch Plugin Source (Force Upgrade to 2.9.6)
         run: |
-          # تصحيح compile إلى implementation
-          find node_modules/cordova-plugin-exoplayer -name "*.gradle" -exec sed -i 's/compile /implementation /g' {} +
-          # حذف jcenter() من ملف الإضافة نفسه لتجنب التعارض (سنضيفه نحن بشكل صحيح)
+          echo "Starting Surgery: Upgrading ExoPlayer from 2.6.1 to 2.9.6..."
+          
+          # 1. تعديل ملف plugin.xml (هذا هو العقل المدبر للإضافة)
+          # نستبدل الرقم 2.6.1 بـ 2.9.6 لكي ينسخ كوردوفا الرقم الجديد
+          find node_modules/cordova-plugin-exoplayer -name "plugin.xml" -exec sed -i 's/2.6.1/2.9.6/g' {} +
+          
+          # 2. تعديل ملف build.gradle داخل مجلد الإضافة
+          # نستبدل الرقم ونصحح الأمر compile ليناسب Gradle الجديد
+          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/2.6.1/2.9.6/g' {} +
+          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/compile /implementation /g' {} +
+          
+          # 3. حذف أي إشارة لـ jcenter داخل الإضافة لمنع التعارض
           find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/jcenter()//g' {} +
+          
+          echo "Surgery Complete: Plugin is now version 2.9.6 (Implementation)"
 
-      # 3. إضافة المنصة
+      # 2. الآن نضيف منصة الأندرويد (ستأخذ النسخة المعدلة 2.9.6)
       - name: Add Android Platform
         run: cordova platform add android
 
-      # ========================================================
-      # الحل النهائي: إنشاء ملف build-extras.gradle
-      # هذا الملف يجبر Gradle على استخدام المستودعات المطلوبة
-      # ========================================================
-      - name: Create Build Extras
+      # 3. خطوة أمان إضافية لضمان وجود مستودعات جوجل
+      - name: Ensure Google Repositories in Settings
         run: |
-          echo "Creating build-extras.gradle to force repositories..."
-          
-          # نكتب ملفاً جديداً في مجلد الأندرويد
-          cat <<EOF > platforms/android/build-extras.gradle
-          ext.postBuildExtras = {
-              buildscript {
-                  repositories {
-                      google()
-                      mavenCentral()
-                      maven { url "https://maven.google.com" }
-                      jcenter() // هذا هو المستودع المفقود للإصدار 2.6.1
-                  }
-              }
-              allprojects {
-                  repositories {
-                      google()
-                      mavenCentral()
-                      maven { url "https://maven.google.com" }
-                      jcenter()
-                  }
-              }
-          }
-          EOF
-          
-          echo "build-extras.gradle created successfully!"
-
-      # خطوة إضافية: تعديل settings.gradle كإجراء أخير للتأكيد
-      - name: Force JCenter in Settings
-        run: |
-          sed -i 's/mavenCentral()/mavenCentral()\n        jcenter()/g' platforms/android/settings.gradle
+          # إضافة جوجل وميفن في settings.gradle لضمان تحميل 2.9.6
+          sed -i 's/mavenCentral()/mavenCentral()\n        google()\n        maven { url "https:\/\/maven.google.com" }/g' platforms/android/settings.gradle
 
       - name: Build APK
         run: cordova build android --debug
