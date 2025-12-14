@@ -1115,41 +1115,76 @@
             });
         }
 
-        // دالة تشغيل المشغل النيتيف (StreamingMedia)
+                // --- دالة تشغيل المشغل الاحترافي (ExoPlayer) ---
         function playNative(url) {
-            if (typeof StreamingMedia === 'undefined') {
-                showError("جاري تحميل المشغل الداخلي...");
-                // في حالة عدم جاهزية البلاجن، نستخدم Video.js مؤقتاً
+            // التحقق من وجود البلاجن
+            if (typeof ExoPlayer === 'undefined') {
+                // إذا لم يتم تثبيت البلاجن لسبب ما، نستخدم Video.js كبديل مؤقت
+                console.log("ExoPlayer not found, fallback to Video.js");
                 playWithVideoJS(url, 'video/mp4');
                 return;
             }
 
-            const options = {
-                successCallback: function() { console.log("Video was closed without error."); },
-                errorCallback: function(errMsg) { showError("تعذر تشغيل الفيديو بالمشغل الداخلي"); },
-                orientation: 'landscape',
-                shouldAutoClose: true,
-                controls: true // يظهر أزرار التحكم والترجمة الافتراضية للجهاز
+            // إعدادات ExoPlayer
+            var parameters = {
+                url: url,
+                aspectRatio: 'FILL_SCREEN', // ملء الشاشة
+                hideTimeout: 5000, // إخفاء التحكم بعد 5 ثواني
+                autoPlay: true,
+                controls: true, // إظهار أزرار التحكم
+                seekTo: 0,
+                // إعدادات الترجمة والصوت
+                useTextureView: true, // تحسين الأداء ومنع الشاشة السوداء
+                showBuffering: true,
+                controller: {
+                    streamImage: 'https://i.ibb.co/1JLqSSnz/1764726803955.jpg', // لوجو يظهر عند التحميل
+                    textColor: '#FFFFFF',
+                    buttonsColor: '#0097e6'
+                }
             };
 
-            // تشغيل الفيديو في واجهة كاملة (يظهر وكأنه داخل التطبيق)
-            StreamingMedia.playVideo(url, options);
+            // تشغيل الفيديو
+            ExoPlayer.show(parameters, 
+                function(success) {
+                    console.log("ExoPlayer Event: " + success.event);
+                    // عند انتهاء الفيديو أو إغلاقه
+                    if(success.event === 'PLAYER_CLOSED' || success.event === 'PLAYER_STOPPED') {
+                        // لا نحتاج لعمل شيء هنا، التطبيق سيعود للواجهة تلقائياً
+                    }
+                }, 
+                function(error) {
+                    console.error("ExoPlayer Error: " + error);
+                    showError("تعذر تشغيل الفيديو: " + error);
+                }
+            );
         }
 
-        // تعديل زر الإغلاق ليدعم النظامين
-        window.closeVideoPlayer = function() {
-            // إغلاق Video.js
-            if (player) { player.pause(); player.currentTime(0); }
+        // إضافة دالة لإغلاق ExoPlayer عند الضغط على زر الرجوع في الهاتف (Android Back Button)
+        document.addEventListener("backbutton", function(e) {
+            // منع الرجوع الافتراضي إذا كان الفيديو يعمل
+            const playerView = document.getElementById('player-view');
+            
+            if (typeof ExoPlayer !== 'undefined') {
+                ExoPlayer.close();
+            }
             
             // الرجوع للخلف في الواجهة
-            const playerView = document.getElementById('player-view');
             if (!playerView.classList.contains('hidden')) {
-                if (navigationStack.length > 0) navigationStack.pop();
-                const lastView = navigationStack[navigationStack.length-1];
-                if(lastView) showView(lastView.view);
-                else showView('mainMenu');
+                // إغلاق Video.js أيضاً للتأكد
+                if(typeof closeVideoPlayer === 'function') closeVideoPlayer();
+
+                // تحديث الستاك (History)
+                /* هذا الجزء مغطى بالفعل في closeVideoPlayer أو onpopstate */
+            } else {
+                // الرجوع العادي إذا لم يكن الفيديو يعمل
+                if (navigationStack.length > 1) {
+                    window.history.back();
+                } else {
+                    // الخروج من التطبيق إذا كنا في الرئيسية
+                    navigator.app.exitApp();
+                }
             }
-        }
+        }, false); // <--- القوس الناقص كان هنا
 
 
 
