@@ -36,44 +36,54 @@ jobs:
       - name: Install Cordova
         run: npm install -g cordova
         
-      # 1. تنظيف وتثبيت المكتبات (نود موديولز فقط)
       - name: Clean Install Dependencies
         run: |
           rm -rf node_modules
           rm -f package-lock.json
           npm install
 
-      # ========================================================
-      # عملية القلب المفتوح: تعديل الإضافة في المصدر (Node Modules)
-      # قبل أن يلمسها كوردوفا ويحولها لأندرويد
-      # ========================================================
-      - name: Patch Plugin Source (Force Upgrade to 2.9.6)
+      # 1. تعديل الإضافة (كما نجحنا سابقاً لجعلها تطلب 2.9.6)
+      - name: Patch Plugin Source
         run: |
-          echo "Starting Surgery: Upgrading ExoPlayer from 2.6.1 to 2.9.6..."
-          
-          # 1. تعديل ملف plugin.xml (هذا هو العقل المدبر للإضافة)
-          # نستبدل الرقم 2.6.1 بـ 2.9.6 لكي ينسخ كوردوفا الرقم الجديد
           find node_modules/cordova-plugin-exoplayer -name "plugin.xml" -exec sed -i 's/2.6.1/2.9.6/g' {} +
-          
-          # 2. تعديل ملف build.gradle داخل مجلد الإضافة
-          # نستبدل الرقم ونصحح الأمر compile ليناسب Gradle الجديد
           find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/2.6.1/2.9.6/g' {} +
           find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/compile /implementation /g' {} +
-          
-          # 3. حذف أي إشارة لـ jcenter داخل الإضافة لمنع التعارض
           find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/jcenter()//g' {} +
-          
-          echo "Surgery Complete: Plugin is now version 2.9.6 (Implementation)"
 
-      # 2. الآن نضيف منصة الأندرويد (ستأخذ النسخة المعدلة 2.9.6)
       - name: Add Android Platform
         run: cordova platform add android
 
-      # 3. خطوة أمان إضافية لضمان وجود مستودعات جوجل
-      - name: Ensure Google Repositories in Settings
+      # ========================================================
+      # الحل النهائي: حرق ملف settings.gradle القديم وكتابة واحد جديد
+      # ========================================================
+      - name: Overwrite settings.gradle (Force JCenter)
         run: |
-          # إضافة جوجل وميفن في settings.gradle لضمان تحميل 2.9.6
-          sed -i 's/mavenCentral()/mavenCentral()\n        google()\n        maven { url "https:\/\/maven.google.com" }/g' platforms/android/settings.gradle
+          echo "Overwriting settings.gradle to enforce JCenter..."
+          
+          # نكتب الملف من الصفر بالمحتوى الصحيح 100%
+          cat <<EOF > platforms/android/settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+              repositories {
+                  google()
+                  mavenCentral()
+                  jcenter() // هذا هو السر المفقود
+                  maven { url 'https://jitpack.io' }
+              }
+          }
+          rootProject.name = 'iptv-smarters-pro'
+          include ':app'
+          EOF
+          
+          # طباعة المحتوى للتأكد
+          cat platforms/android/settings.gradle
 
       - name: Build APK
         run: cordova build android --debug
