@@ -29,62 +29,21 @@ jobs:
         with:
           gradle-version: '8.5'
 
+      # --- التعديل هنا: استخدام المسار الكامل للأداة ---
       - name: Install Android SDK Tools
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33"
+      # ------------------------------------------------
           
       - name: Install Cordova
         run: npm install -g cordova
         
-      - name: Clean Install Dependencies
-        run: |
-          rm -rf node_modules
-          rm -f package-lock.json
-          npm install
-
-      # 1. تعديل الإضافة (كما نجحنا سابقاً لجعلها تطلب 2.9.6)
-      - name: Patch Plugin Source
-        run: |
-          find node_modules/cordova-plugin-exoplayer -name "plugin.xml" -exec sed -i 's/2.6.1/2.9.6/g' {} +
-          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/2.6.1/2.9.6/g' {} +
-          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/compile /implementation /g' {} +
-          find node_modules/cordova-plugin-exoplayer -name "build.gradle" -exec sed -i 's/jcenter()//g' {} +
-
+      - name: Install Dependencies
+        run: npm install
+        
       - name: Add Android Platform
         run: cordova platform add android
-
-      # ========================================================
-      # الحل النهائي: حرق ملف settings.gradle القديم وكتابة واحد جديد
-      # ========================================================
-      - name: Overwrite settings.gradle (Force JCenter)
-        run: |
-          echo "Overwriting settings.gradle to enforce JCenter..."
-          
-          # نكتب الملف من الصفر بالمحتوى الصحيح 100%
-          cat <<EOF > platforms/android/settings.gradle
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
-              repositories {
-                  google()
-                  mavenCentral()
-                  jcenter() // هذا هو السر المفقود
-                  maven { url 'https://jitpack.io' }
-              }
-          }
-          rootProject.name = 'iptv-smarters-pro'
-          include ':app'
-          EOF
-          
-          # طباعة المحتوى للتأكد
-          cat platforms/android/settings.gradle
-
+        
       - name: Build APK
         run: cordova build android --debug
 
@@ -93,3 +52,6 @@ jobs:
         with:
           name: iptv-player-app
           path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
+
+
+
